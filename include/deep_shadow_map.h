@@ -45,14 +45,17 @@ float accumulate_over_steps(
     AccumFunc func,
     float initial = 0
 ){
-    float smax = (end - start).magnitude();
-    if (smax == 0.0f) return initial;
+    std::mt19937 rng(std::random_device{}());
+    std::uniform_real_distribution<float> variation(0.01f, 7.0f);
+
     const auto dir = (end - start).unitvector();
+    float smax = (end - start).magnitude();
     float s = 0;
     while (s < smax){
-        const float ds = std::min(step_size, smax - s);
-        auto pos = start + (s + 0.5f * ds) * dir;
-        initial += func(pos) * ds;
+        auto pos = start + s * dir;
+        initial += func(pos);
+        const float remaining = smax - s;
+        const float ds = std::min(step_size * variation(rng), remaining);
         s += ds;
     }
     return initial;

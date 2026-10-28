@@ -242,30 +242,31 @@ PYBIND11_MODULE(physics_vfx, module)
         }
     );
 
-    module.def(
-        "function_field",
-        [](py::function eval_function,
-           py::object grad_function) -> vspf {
-            FunctionField<float>::GradFunc gradient;
+    // funcfield too slow for python
+    // module.def(
+    //     "function_field",
+    //     [](py::function eval_function,
+    //        py::object grad_function) -> vspf {
+    //         FunctionField<float>::GradFunc gradient;
 
-            if (!grad_function.is_none()) {
-                gradient = [grad_function](const Vector& point) {
-                    py::gil_scoped_acquire gil;
-                    return grad_function(point).cast<Vector>();
-                };
-            }
+    //         if (!grad_function.is_none()) {
+    //             gradient = [grad_function](const Vector& point) {
+    //                 py::gil_scoped_acquire gil;
+    //                 return grad_function(point).cast<Vector>();
+    //             };
+    //         }
 
-            auto evaluator = [eval_function](const Vector& point) {
-                py::gil_scoped_acquire gil;
-                return eval_function(point).cast<float>();
-            };
+    //         auto evaluator = [eval_function](const Vector& point) {
+    //             py::gil_scoped_acquire gil;
+    //             return eval_function(point).cast<float>();
+    //         };
 
-            return std::make_shared<FunctionField<float>>(
-                std::move(evaluator),
-                std::move(gradient)
-            );
-        },
-        py::arg("eval_function"),
-        py::arg("grad_function") = py::none()
-    );
+    //         return std::make_shared<FunctionField<float>>(
+    //             std::move(evaluator),
+    //             std::move(gradient)
+    //         );
+    //     },
+    //     py::arg("eval_function"),
+    //     py::arg("grad_function") = py::none()
+    // );
 }

@@ -54,7 +54,7 @@ submodule dependencies even for this CPU render path.
 
 ```bash
 cmake -S . -B build -DPBVFX_BUILD_PYTHON=ON
-cmake --build build
+cmake --build build --parallel
 PYTHONPATH="$PWD/build/python" python python/usd_to_pbvfx.py \
   python/inputs/sphere.usda --output outputs/sphere.exr
 ```

@@ -1,0 +1,85 @@
+#usda 1.0
+(
+    metersPerUnit = 0.01
+    upAxis = "Y"
+)
+
+def Cube "Cube1"
+{
+    float3[] extent = [(-0.7751938, -0.7751938, -0.7751938), (0.7751938, 0.7751938, 0.7751938)]
+    double size = 1.550387594011403
+    float3 xformOp:rotateXYZ = (29.893734, 0.28949103, -0.26526698)
+    double3 xformOp:translate = (-1.477782696171683, 0.813154129476152, 0.6947152961295437)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+}
+
+def Cone "Cone1"
+{
+    uniform token axis = "Y"
+    float3[] extent = [(-1, -1, -1), (1, 1, 1)]
+    float3 xformOp:rotateXYZ = (1.8092847, -0.0286802, -1261.2643)
+    double3 xformOp:translate = (-0.07108397921550669, -0.08316671862963232, 0.8855432963774548)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+}
+
+def Cylinder "Cylinder1"
+{
+    float3[] extent = [(-0.3875969, -0.3875969, -1.1627907), (0.3875969, 0.3875969, 1.1627907)]
+    double height = 2.325581391017104
+    double radius = 0.38759689850285073
+    float3 xformOp:rotateXYZ = (101.24329, 7.128961, -31.976156)
+    double3 xformOp:translate = (-2.5026248439104535, -0.5725597022371589, 0.17088040938421534)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+}
+
+def Sphere "Sphere1"
+{
+    float3[] extent = [(-0.3875969, -0.3875969, -0.3875969), (0.3875969, 0.3875969, 0.3875969)]
+    double radius = 0.38759689850285073
+    double3 xformOp:translate = (-0.0058635575514198734, 0.5444245503818768, 1.6823339115843867)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+}
+
+def Cone "Cone2"
+{
+    uniform token axis = "Y"
+    float3[] extent = [(-1, -1, -1), (1, 1, 1)]
+    float3 xformOp:rotateXYZ = (8.670128, -0.013128782, -1263.2771)
+    double3 xformOp:translate = (-0.07108397921550669, -0.8632743133422769, 0.8855432963774548)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+}
+
+def Sphere "Sphere2"
+{
+    float3[] extent = [(-0.3875969, -0.3875969, -0.3875969), (0.3875969, 0.3875969, 0.3875969)]
+    double radius = 0.38759689850285073
+    double3 xformOp:translate = (-0.0058635575514198734, -0.34811478896141557, 1.6823339115843867)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+}
+
+def Cube "Cube2"
+{
+    float3[] extent = [(-0.7751938, -0.7751938, -0.7751938), (0.7751938, 0.7751938, 0.7751938)]
+    double size = 1.550387594011403
+    float3 xformOp:rotateXYZ = (29.893734, 0.28949103, -0.26526698)
+    double3 xformOp:translate = (1.283463582817924, 0.813154129476152, 0.6947152961295437)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+}
+
+def Cylinder "Cylinder2"
+{
+    float3[] extent = [(-0.3875969, -0.3875969, -1.1627907), (0.3875969, 0.3875969, 1.1627907)]
+    double height = 2.325581391017104
+    double radius = 0.38759689850285073
+    float3 xformOp:rotateXYZ = (79.70893, 8.45245, -141.0084)
+    double3 xformOp:translate = (2.4226184027408753, -0.5725597022371589, 0.47671326149643634)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+}
+
+def Cylinder "Cylinder3"
+{
+    float3 xformOp:rotateXYZ = (-23.40709, 25.252394, -10.463036)
+    double3 xformOp:translate = (0, 2.182405902198795, 0.8271232579305897)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+}
+

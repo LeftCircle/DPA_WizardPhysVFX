@@ -1,0 +1,21 @@
+Here is how you can use this starter kit.
+
+
+The directories and files are as follows:
+
+base       directory of C++ implemented code for the starter kit.
+
+include    directory of C++ header files
+
+lib        directory where the compiled library will go
+
+models     a collection of models that may or may not be needed
+
+Makefile   The make file for building the library and executable
+
+python     directory with useful python scripts
+
+README     This file
+
+
+

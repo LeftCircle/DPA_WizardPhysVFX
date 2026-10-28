@@ -1,0 +1,341 @@
+
+To fix intelisense run
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+and reload
+
+// ----------------------------------------------------------
+// ffmpeg with exr
+// ----------------------------------------------------------
+ffmpeg -framerate 24 -i bunny_rotated.%04d.exr \
+  -vf "vflip,format=yuv420p" \
+  -c:v mpeg4 -q:v 2 bunny_out_flipped.mov
+
+
+cmake -S . -B build
+
+
+to build physics_vfx and see outputs
+cmake --build build --target physics_vfx --verbose -j
+
+After adding or changing a test:
+
+cmake --build build --target pbvfx_tests --parallel
+ctest --test-dir build --output-on-failure
+
+# To see printf output during unit tests
+ctest --test-dir build -V
+
+
+If you add a brand-new test source file and CMake does not detect it, reconfigure:
+
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build --target pbvfx_tests --parallel
+ctest --test-dir build --output-on-failure
+
+To build with optimizations
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target physics_vfx --parallel
+
+
+// ----------------------------------------------------------
+// Building python bindings
+// ----------------------------------------------------------
+cmake -S . -B build -DPBVFX_BUILD_PYTHON=ON
+cmake --build build --target physics_vfx_python --parallel
+
+When running python, do
+PYTHONPATH=build/python python my_script.py
+don't forget to activate the virtual environment with source .venv/bin/activate
+
+
+// ----------------------------------------------------------
+// Building both imgviewer and physics_vfx
+// ----------------------------------------------------------
+
+
+
+First, enable the viewer in the top-level `CMakeLists.txt:46-53`:
+
+```cmake
+set(IMAGE_PROCESSING_BUILD_VIEWER ON CACHE BOOL "" FORCE)
+```
+
+Then configure and build both executables:
+
+```bash
+cmake -S . -B build
+cmake --build build --target physics_vfx dpa_imgviewer --parallel
+```
+
+Run the renderer from the project root, then launch the viewer:
+
+```bash
+./build/physics_vfx
+./build/DPA_ImageProcessing/dpa_imgviewer -image images/test_image.exr
+```
+ Build `dpa_imgviewer` once:
+
+```bash
+cmake -S . -B build
+cmake --build build --target dpa_imgviewer --parallel
+```
+
+Then your repeated workflow only needs to build/run the renderer and launch the existing viewer:
+
+```bash
+cmake --build build --target physics_vfx --parallel
+
+
+
+// ----------------------------------------------------------------------
+// BUILDING ASAN to crash on undefined
+// ----------------------------------------------------------------------
+
+cmake -S . -B build-asan \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
+  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+cmake --build build-asan --target physics_vfx --parallel
+
+ASAN_OPTIONS=halt_on_error=1:detect_leaks=0 \
+./build-asan/physics_vfx -image /tmp/bunny.exr
+
+
+// ----------------------------------------------------------------------
+// PYTHON BINDINGS
+// ----------------------------------------------------------------------
+import physics_vfx as vfx
+
+sphere = vfx.sphere(vfx.Vector(0, 0, 0), 0.5)
+
+print(sphere.eval(vfx.Vector(0, 0, 0)))
+print(sphere.grad(vfx.Vector(0.1, 0, 0)))
+
+custom = vfx.function_field(
+    lambda p: p.magnitude() - 0.5
+)
+
+custom_with_gradient = vfx.function_field(
+    lambda p: p.magnitude() - 0.5,
+    lambda p: p.unitvector()
+)
+
+
+
+
+better tempalted funcfield to avoid std::function overhead
+
+I’ll inspect the `Volume` interface and how `FunctionField` is constructed, because the main tradeoff is between zero-overhead compile-time callables and preserving runtime polymorphism through `Volume<T>`.
+
+Searched for regex `FunctionField<|make_shared<FunctionField|FunctionField\(` (`**/*.{cpp,h,hpp}`), 4 results
+
+Searched for regex `\.eval\(|->eval\(|\.grad\(|->grad\(` (`**/src/**`), 28 results
+
+Read , lines 1 to 180
+
+The current design has two distinct costs: `std::function` type-erases the callable inside `FunctionField`, while every use through `Volume<T>*` already incurs virtual dispatch. I’m checking the factory and Python boundary to distinguish what can be removed safely from what is required by the existing runtime-polymorphic API.
+
+Read , lines 150 to 200
+
+Read , lines 1 to 100
+
+Read , lines 1 to 100
+
+Read , lines 205 to 247
+
+Yes. For the C++ API, a templated callable holder avoids `std::function`’s type-erasure and indirect invocation.
+
+Your current overhead occurs in both places:
+
+```cpp
+std::function<volumeDataType(const Vector&)>
+```
+
+in `FunctionField`, and again in `field_interface.h` where `funcfield` accepts `std::function`.
+
+A modern alternative is to make the callable types template parameters:
+
+```cpp
+template<class T, class Eval, class Grad = std::nullptr_t>
+class FunctionField : public Volume<T> {
+public:
+    using volumeDataType = typename Volume<T>::volumeDataType;
+    using volumeGradType = typename Volume<T>::volumeGradType;
+
+    template<class E, class G = Grad>
+    FunctionField(E&& eval, G&& grad = {})
+        : _eval(std::forward<E>(eval)),
+          _grad(std::forward<G>(grad)) {}
+
+    volumeDataType eval(const Vector& p) const override {
+        return _eval(p);
+    }
+
+    volumeGradType grad(const Vector& p) const override {
+        if constexpr (std::is_same_v<Grad, std::nullptr_t>) {
+            return Volume<T>::grad(p);
+        } else {
+            return _grad(p);
+        }
+    }
+
+private:
+    Eval _eval;
+    Grad _grad;
+};
+```
+
+The factory should also be templated:
+
+```cpp
+template<class T, class Eval, class Grad = std::nullptr_t>
+VolumeSPtr<T> funcfield(Eval&& eval, Grad&& grad = {}) {
+    using EvalType = std::decay_t<Eval>;
+    using GradType = std::decay_t<Grad>;
+
+    return std::make_shared<
+        FunctionField<T, EvalType, GradType>
+    >(
+        std::forward<Eval>(eval),
+        std::forward<Grad>(grad)
+    );
+}
+```
+
+You would need to include:
+
+```cpp
+#include <utility>
+```
+
+This gives direct calls such as:
+
+```cpp
+auto field = funcfield<float>(
+    [](const Vector& p) {
+        return p.length();
+    },
+    [](const Vector& p) {
+        return p.unitvector();
+    }
+);
+```
+
+The lambda’s concrete type is stored directly, so the callable invocation can be inlined. However, because the result is still returned as `VolumeSPtr<T>`, calls through that pointer retain the virtual dispatch cost:
+
+```cpp
+VolumeSPtr<float> field = funcfield<float>(...);
+field->eval(p); // virtual dispatch remains
+```
+
+So this removes the `std::function` overhead, but not the existing `Volume<T>` polymorphism.
+
+The Python binding in `pybindings.cpp` is a separate case. Since `py::function` is inherently runtime/type-erased and requires Python GIL handling, it cannot benefit much from compile-time callable storage. You can keep `std::function` there, or construct the templated `FunctionField` directly with the lambda types.
+
+One important design choice: use the templated version for C++ factories, but retain a type-erased wrapper only where runtime polymorphism is genuinely required, such as the Python API.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+voxel stuff being difficult:
+
+The sphere is stamped in **grid index space**, but `make_grid_field()` samples using world-space coordinates as if they were index coordinates:
+
+```cpp
+auto res = openvdb::tools::BoxSampler::sample(grid->tree(), val);
+```
+
+With a voxel size of `0.1`:
+
+- Grid index `20` represents world position `2.0`
+- The ray marcher evaluates positions such as `z = 5..15`
+- `BoxSampler::sample()` interprets those as indices `5..15`, not world positions
+
+This makes the density field appear in the wrong place. The density can become negative before the ray reaches the actual sphere, extinguishing the ray before the color field becomes green.
+
+Use a transform-aware sampler:
+
+```cpp
+inline vspf make_grid_field(const openvdb::FloatGrid::Ptr& grid) {
+    using Sampler = openvdb::tools::GridSampler<
+        openvdb::FloatGrid::ConstAccessor,
+        openvdb::tools::BoxSampler
+    >;
+
+    auto sampler = std::make_shared<Sampler>(
+        grid->getConstAccessor(),
+        grid->transform()
+    );
+
+    auto eval_func = [sampler](const Vector& p) {
+        return sampler->wsSample(
+            openvdb::Vec3d(p.X(), p.Y(), p.Z())
+        );
+    };
+
+    return funcfield<float>(eval_func);
+}
+```
+
+`wsSample()` accepts world-space coordinates and applies the grid transform correctly.
+
+Alternatively, explicitly convert world space to index space:
+
+```cpp
+auto eval_func = [grid](const Vector& p) {
+    openvdb::Vec3d world(p.X(), p.Y(), p.Z());
+    openvdb::Vec3d index = grid->worldToIndex(world);
+
+    return openvdb::tools::BoxSampler::sample(grid->tree(), index);
+};
+```
+
+The first approach is preferable because it directly expresses the intended sampling behavior.
+
+
+
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+To check for class functions at compile time:
+template <typename F, typename = void>
+struct has_clear_cache : std::false_type {};
+
+template <typename F>
+struct has_clear_cache<F, std::void_t<
+    decltype(std::declval<F&>().clear_cache())
+>> : std::true_type {};
+
+template <typename Ptr>
+void clear_cache_if_supported(const Ptr& field) {
+    using Field = typename Ptr::element_type;
+
+    if constexpr (has_clear_cache<Field>::value) {
+        if (field) field->clear_cache();
+    }
+}

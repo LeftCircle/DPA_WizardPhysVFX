@@ -1,0 +1,7 @@
+The project files can be found at:
+https://github.com/LeftCircle/DPA_PhysicsBasedVFX/tree/terrain
+
+The goal of the project is to create a tool so that usd files can be input into the software, then volumetric fields are constructed based on the
+position, orientation, type, and custom attributes from the USD data. These fields are created through functions in field_interface.h.
+
+Physics based VFX files are in src/include. These are the ones that construct the volumetric data and perform the raymarch. 

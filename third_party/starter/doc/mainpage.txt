@@ -1,0 +1,12 @@
+/*! \mainpage 
+ *  \image html bishop.jpeg
+ *  <center><b>Bishop from the movie <a href="https://www.imdb.com/title/tt0090605/">ALIENs (1986)</a></b></center>
+ *  \section background Background
+ *  Bishop is a volumetric 3D field expression system.  The core fields are written in C++.  Bindings to python via SWIG provide easy scripting and manipulation of fields.  
+ * 
+ * \section documentation Documentation
+ *  <ul>
+ *  <li><a href="../manuals/doxygen_manual-1.7.4.pdf">Doxygen</a></li>
+ *  <li><a href="../manuals/SWIGDocumentation.pdf">Swig 3</a></li>
+ *  </ul>
+ */

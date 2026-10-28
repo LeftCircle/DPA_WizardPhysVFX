@@ -1,0 +1,6 @@
+[submodule "third_party/DPA_ImageProcessing"]
+	path = third_party/DPA_ImageProcessing
+	url = https://github.com/LeftCircle/DPA_ImageProcessing.git
+[submodule "third_party/DPA_PhysicsBasedAnimation"]
+	path = third_party/DPA_PhysicsBasedAnimation
+	url = https://github.com/LeftCircle/DPA_PhysicsBasedAnimation.git

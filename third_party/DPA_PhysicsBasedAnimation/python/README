@@ -1,0 +1,51 @@
+This directory holds various python scripts of use.
+
+makemovie.py
+-----------------
+This script generates a movie from a sequence of frames.
+Usage:
+    python ./python/makemovie.py <list of image file names>
+
+The script generates a sequence of intermediate jpg files, then generates the movie, then removes the jpg files.
+Typically, the <list of image file names> include wildcards.  For example, if you have a sequence of files with names
+
+  myimage01.png
+  myimage02.png
+  myimage03.png
+     .
+     .
+     .
+  myimageNN.png
+
+then you can use wildcards like:
+
+    python ./python/makemovie.py myimage*.png
+
+or
+
+    python ./python/makemovie.py myimage??.png
+
+The name of the movie file is 'MyMovie.mov'.  Any common image format can be used, because 'makemovie.py' using the ImageMagick command line tool 'convert' to generate jpg files.  If you have a sequence of ppm files, you can do
+
+    python ./python/makemovie.py myimage*.ppm
+
+If all of the ppm files are in your sequence of images, you can even do
+
+    python ./python/makemovie.py *.ppm
+
+
+
+
+
+
+zipper.py
+------------------
+
+
+
+
+
+handin.py
+-------------------
+
+

@@ -14,6 +14,7 @@ ChatGPT mini
 #include <pybind11/stl.h>
 
 #include "field_interface.h"
+#include "openvdb_helpers.h"
 #include "usd_sphere_render.h"
 
 namespace py = pybind11;
@@ -327,4 +328,106 @@ PYBIND11_MODULE(physics_vfx, module)
     module.attr("isf_steiner_patch") = module.attr("steiner_patch");
     module.attr("isf_ellipse") = module.attr("ellipse");
     module.attr("isf_cylinder") = module.attr("cylinder");
+
+    py::class_<coordbbox>(module, "CoordBBox")
+        .def(py::init([](const std::array<int, 3>& lower, const std::array<int, 3>& upper) {
+            for (int i = 0; i < 3; ++i) if (lower[i] > upper[i]) throw py::value_error("lower bounds must not exceed upper bounds");
+            return coordbbox(ocoord(lower[0], lower[1], lower[2]), ocoord(upper[0], upper[1], upper[2]));
+        }), py::arg("minimum"), py::arg("maximum"))
+        .def_property_readonly("minimum", [](const coordbbox& b) { return std::array<int, 3>{b.min().x(), b.min().y(), b.min().z()}; })
+        .def_property_readonly("maximum", [](const coordbbox& b) { return std::array<int, 3>{b.max().x(), b.max().y(), b.max().z()}; });
+
+    module.def("world_space_to_bounds", [](const Vector& lower, const Vector& upper, float voxel_size) {
+        return world_space_to_bounds(lower, upper, voxel_size);
+    }, py::arg("lower"), py::arg("upper"), py::arg("voxel_size"));
+    module.def("world_space_to_bounds", [](const Vector& lower, const Vector& upper, const FloatGridHandle& grid) {
+        return world_space_to_bounds(lower, upper, grid.grid);
+    }, py::arg("lower"), py::arg("upper"), py::arg("grid"));
+
+    module.def("create_float_grid", [](float voxel_size, float background) {
+        if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive and finite");
+        openvdb::initialize(); return FloatGridHandle{create_float_grid(voxel_size, background)};
+    }, py::arg("voxel_size"), py::arg("background") = 0.0f);
+    module.def("create_color_grid", [](float voxel_size, const Color& background) {
+        if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive and finite");
+        openvdb::initialize(); return ColorGridHandle{create_color_grid(voxel_size, GridTypes<Color>::to_grid(background))};
+    }, py::arg("voxel_size"), py::arg("background") = Color(0, 0, 0, 0));
+    module.def("create_grid", [](float voxel_size, float background) {
+        if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive and finite");
+        openvdb::initialize(); return FloatGridHandle{create_grid<float>(voxel_size, background)};
+    }, py::arg("voxel_size"), py::arg("background") = 0.0f);
+    module.def("create_grid", [](float voxel_size, const Color& background) {
+        if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive and finite");
+        openvdb::initialize(); return ColorGridHandle{create_grid<Color>(voxel_size, GridTypes<Color>::to_grid(background))};
+    }, py::arg("voxel_size"), py::arg("background"));
+
+    module.def("obj_mesh_to_level_set_f", [](const std::string& path, float voxel_size, float half_width, bool recenter) {
+        return FloatGridHandle{obj_mesh_to_level_set_f(path, voxel_size, half_width, recenter)};
+    }, py::arg("path"), py::arg("voxel_size"), py::arg("half_width") = 3.0f, py::arg("recenter") = false,
+       "Voxelize OBJ triangles/quads into a signed-distance grid. Positions are preserved by default.");
+    module.def("obj_mesh_to_grid_field", [](const std::string& path, float voxel_size, float half_width, bool recenter) {
+        return obj_mesh_to_grid_field(path, voxel_size, half_width, recenter);
+    }, py::arg("path"), py::arg("voxel_size"), py::arg("half_width") = 3.0f, py::arg("recenter") = false,
+       "Voxelize an OBJ as a signed-distance scalar field.");
+    module.attr("obj_mesh_to_field") = module.attr("obj_mesh_to_grid_field");
+
+    module.def("mesh_to_levelset", [](float voxel_size, const std::vector<Vector>& vertices,
+        const std::vector<std::array<int, 3>>& triangles, const std::vector<std::array<int, 4>>& quads, float half_width) {
+        std::vector<openvdb::Vec3s> points; points.reserve(vertices.size());
+        for (const auto& v : vertices) points.emplace_back(v.X(), v.Y(), v.Z());
+        std::vector<openvdb::Vec3I> tris; tris.reserve(triangles.size());
+        for (const auto& f : triangles) tris.emplace_back(f[0], f[1], f[2]);
+        std::vector<openvdb::Vec4I> qs; qs.reserve(quads.size());
+        for (const auto& f : quads) qs.emplace_back(f[0], f[1], f[2], f[3]);
+        return FloatGridHandle{mesh_to_levelset(voxel_size, std::move(points), std::move(tris), std::move(qs), half_width)};
+    }, py::arg("voxel_size"), py::arg("points"), py::arg("triangles"),
+       py::arg("quads") = std::vector<std::array<int, 4>>{}, py::arg("half_width") = 3.0f);
+
+    module.def("stamp_isf_to_grid", [](float voxel_size, float background, const vspf& field, const coordbbox& bounds, const std::string& filename) {
+        if (!field) throw py::value_error("field cannot be null");
+        if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive and finite");
+        openvdb::initialize();
+        return FloatGridHandle{stamp_isf_to_grid(voxel_size, background, field, bounds, filename)};
+    }, py::arg("voxel_size"), py::arg("background"), py::arg("field"), py::arg("bounds"), py::arg("filename") = "");
+    module.def("stamp_color_to_grid", [](const vspc& field, const coordbbox& bounds, float voxel_size, const std::string& filename) {
+        if (!field) throw py::value_error("field cannot be null");
+        if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive and finite");
+        openvdb::initialize();
+        return ColorGridHandle{stamp_color_to_grid(field, bounds, voxel_size, filename)};
+    }, py::arg("field"), py::arg("bounds"), py::arg("voxel_size"), py::arg("filename") = "");
+
+    module.def("stamp_grid", [](FloatGridHandle& grid, const vspf& field, const coordbbox& bounds, bool negative_only) {
+        if (!field) throw py::value_error("field cannot be null");
+        stamp_grid<float>(grid.grid, [field](const Vector& p) { return field->eval(p); },
+            [negative_only](float v) { return !negative_only || v < 0; }, bounds);
+    }, py::arg("grid"), py::arg("field"), py::arg("bounds"), py::arg("negative_only") = false);
+    module.def("stamp_grid", [](ColorGridHandle& grid, const vspc& field, const coordbbox& bounds) {
+        if (!field) throw py::value_error("field cannot be null");
+        stamp_grid<Color>(grid.grid, [field](const Vector& p) { return field->eval(p); }, [](const Color&) { return true; }, bounds);
+    }, py::arg("grid"), py::arg("field"), py::arg("bounds"));
+    module.def("stamp_grid_parallel", [](float voxel_size, float background, const vspf& field, const coordbbox& bounds, bool negative_only, const std::string& filename) {
+        if (!field) throw py::value_error("field cannot be null");
+        if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive and finite");
+        openvdb::initialize();
+        return FloatGridHandle{stamp_grid_parallel<float>(voxel_size, background,
+            [field](const Vector& p) { return field->eval(p); }, [negative_only](float v) { return !negative_only || v < 0; }, bounds, filename)};
+    }, py::arg("voxel_size"), py::arg("background"), py::arg("field"), py::arg("bounds"), py::arg("negative_only") = false, py::arg("filename") = "");
+    module.def("stamp_grid_parallel", [](float voxel_size, const Color& background, const vspc& field, const coordbbox& bounds, const std::string& filename) {
+        if (!field) throw py::value_error("field cannot be null");
+        if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive and finite");
+        openvdb::initialize();
+        return ColorGridHandle{stamp_grid_parallel<Color>(voxel_size, GridTypes<Color>::to_grid(background),
+            [field](const Vector& p) { return field->eval(p); }, [](const Color&) { return true; }, bounds, filename)};
+    }, py::arg("voxel_size"), py::arg("background"), py::arg("field"), py::arg("bounds"), py::arg("filename") = "");
+    module.def("save_to_disk", [](const FloatGridHandle& grid, std::string filename) { save_to_disk(grid.grid, filename); }, py::arg("grid"), py::arg("filename"));
+    module.def("save_to_disk", [](const ColorGridHandle& grid, std::string filename) { save_to_disk(grid.grid, filename); }, py::arg("grid"), py::arg("filename"));
+    module.def("trilinear_deposit", [](FloatGridHandle& grid, const Vector& position, float value) {
+        auto accessor = grid.grid->getAccessor();
+        trilinear_deposit(accessor, grid.grid->transform(), openvdb::Vec3s(position.X(), position.Y(), position.Z()), value);
+    }, py::arg("grid"), py::arg("position"), py::arg("value"));
+    module.def("trilinear_deposit", [](ColorGridHandle& grid, const Vector& position, const Color& value) {
+        auto accessor = grid.grid->getAccessor();
+        trilinear_deposit(accessor, grid.grid->transform(), openvdb::Vec3s(position.X(), position.Y(), position.Z()), GridTypes<Color>::to_grid(value));
+    }, py::arg("grid"), py::arg("position"), py::arg("value"));
+
 }

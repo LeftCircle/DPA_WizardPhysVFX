@@ -152,7 +152,18 @@ def field_from_prim(
     xform_cache,
     unit_scale,
     rounding_exponent=3,
+    mesh_voxel_size=0.05,
+    mesh_half_width=3.0,
+    volume_meters_per_unit=1.0,
 ):
+    if prim.IsA(UsdGeom.Mesh):
+        from usd_mesh import mesh_prim_to_field
+        return mesh_prim_to_field(prim, mesh_voxel_size, mesh_half_width, volume_meters_per_unit)
+
+    type_name = str(prim.GetTypeName())
+    if type_name not in {'Cube', 'Sphere', 'Cylinder', 'Cone', 'Plane'}:
+        return None
+
     transform = read_transform(
         prim,
         xform_cache,
@@ -160,7 +171,6 @@ def field_from_prim(
     )
 
     origin = fx.Vector(0.0, 0.0, 0.0)
-    type_name = str(prim.GetTypeName())
     print("Typename = ", type_name)
     scale = transform["scale"]
 
@@ -288,6 +298,8 @@ def union_fields(fields):
 def create_volume_from_usd(
     filename,
     volume_meters_per_unit=1.0,
+    mesh_voxel_size=0.05,
+    mesh_half_width=3.0,
 ):
     stage = Usd.Stage.Open(filename)
 
@@ -308,6 +320,9 @@ def create_volume_from_usd(
             prim,
             xform_cache,
             unit_scale,
+            mesh_voxel_size=mesh_voxel_size,
+            mesh_half_width=mesh_half_width,
+            volume_meters_per_unit=volume_meters_per_unit,
         )
 
         if field is not None:
@@ -321,3 +336,4 @@ def create_volume_from_usd(
 if __name__ == "__main__":
     from usd_sphere_scene import main
     main()
+

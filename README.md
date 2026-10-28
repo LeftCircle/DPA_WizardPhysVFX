@@ -133,3 +133,67 @@ With the module built and available on `PYTHONPATH`, run the field tests with:
 ```bash
 PYTHONPATH="$PWD/build/python" python -m unittest discover -s python -p 'test_field_bindings.py' -v
 ```
+
+## Meshes as scalar fields
+
+Use the built Python module to turn an OBJ mesh into a signed-distance field:
+
+```python
+import physics_vfx as fx
+
+field = fx.obj_mesh_to_grid_field("models/box.obj", voxel_size=0.05, half_width=3.0)
+print(field.eval(fx.Vector(0, 0, 0)))
+# To retain the OpenVDB grid instead:
+grid = fx.obj_mesh_to_level_set_f("models/box.obj", voxel_size=0.05)
+fx.save_to_disk(grid, "outputs/box.vdb")
+```
+
+Python OBJ imports preserve the positions in the file by default; use
+`recenter=True` to move the vertex centroid to the origin. Existing C++ calls
+retain their previous default of recentering. OBJ vertex coordinates and voxel
+size use the same units. Faces may be triangles or quads, including negative
+OBJ indices; triangulate larger polygons before import. Unsupported or invalid
+faces and missing files raise an error.
+
+For USD, add both the built module and the `python/` directory to `PYTHONPATH`.
+The `pxr` bindings must be available in that same Python environment:
+
+```python
+from usd_mesh import usd_mesh_to_field
+import physics_vfx as fx
+
+field = usd_mesh_to_field("scene.usda", voxel_size=0.05,
+                          prim_path="/World/Model")
+print(field.eval(fx.Vector(0, 0, 0)))
+```
+
+If the stage has exactly one mesh, `prim_path` can be omitted. The loader
+applies the mesh's composed world transform and the stage's `metersPerUnit`.
+Renderer coordinates and `voxel_size` are in meters by default; pass
+`volume_meters_per_unit` to use another renderer unit. `half_width` is the
+narrow-band half width in voxels, and `time` selects an authored USD time
+(default: USD default time). `usd_mesh_to_grid` returns the underlying grid.
+`create_volume_from_usd` in `usd_to_pbvfx.py` also recognizes mesh prims; pass
+`mesh_voxel_size` and `mesh_half_width` to configure them.
+
+USD mesh conversion currently supports polygon meshes with triangle and quad
+faces and `subdivisionScheme = "none"`. Subdivision surfaces, mesh holes, and
+larger polygons must be converted to closed triangle/quad meshes first. For a
+meaningful signed distance, the surface must be closed. The result is a
+narrow-band level set: values are negative inside, positive outside, and
+clamped to the band width away from the surface. It is a scalar field rather
+than an automatic density or image render.
+
+`CoordBBox`, `world_space_to_bounds`, grid creation, mesh conversion, field
+stamping, trilinear deposit and `save_to_disk` are also available in Python.
+Bounds are inclusive voxel coordinates. `stamp_grid` and
+`stamp_grid_parallel` accept a C++ field; their optional `negative_only` flag
+selects negative scalar values. The callback-based C++ templates are not
+exposed as arbitrary Python callbacks.
+
+Run the integration tests with the built module and OpenUSD available:
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python -m unittest discover \
+  -s python -p 'test_mesh_import.py' -v
+```

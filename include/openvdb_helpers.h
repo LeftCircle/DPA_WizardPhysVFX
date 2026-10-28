@@ -21,8 +21,8 @@ openvdb::CoordBBox world_space_to_bounds(const Vector& llc, const Vector& urc, f
 openvdb::FloatGrid::Ptr create_float_grid(float voxel_size, float default_val = 0.0f);
 openvdb::Vec3SGrid::Ptr create_color_grid(float voxel_size, openvdb::Vec3s def_val = openvdb::Vec3s(0, 0, 0));
 
-openvdb::FloatGrid::Ptr obj_mesh_to_level_set_f(std::string& obj_path, float voxel_size, float half_width);
-VSPtr<float> obj_mesh_to_grid_field(std::string& obj_path, float voxel_size, float half_width);
+openvdb::FloatGrid::Ptr obj_mesh_to_level_set_f(const std::string& obj_path, float voxel_size, float half_width, bool recenter = true);
+VSPtr<float> obj_mesh_to_grid_field(const std::string& obj_path, float voxel_size, float half_width, bool recenter = true);
 
 // TODO -> template and parallelyze all of it
 GridPtr<float> stamp_isf_to_grid(
@@ -163,6 +163,7 @@ void trilinear_deposit(
 
 
 } // end namespace lux
+
 
 
 

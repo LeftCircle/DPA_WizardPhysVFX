@@ -94,7 +94,7 @@ public:
 
     BoxField(const Vector& center, float radius, int rounding_exponent) : 
             _center(center), _radius(radius), _rounding_exponent( 2 * rounding_exponent),
-            _r_to_rounding_exp(std::powf(radius, 2 * rounding_exponent)) {};
+            _r_to_rounding_exp(std::pow(radius, 2 * rounding_exponent)) {};
     ~BoxField() = default;
     
     const volumeDataType eval( const Vector& p ) const override;

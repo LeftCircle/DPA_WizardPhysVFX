@@ -59,7 +59,7 @@ const ClampField::volumeDataType ClampField::eval(const Vector& p) const {
 const BlinnBlendField::volumeDataType BlinnBlendField::eval(const Vector& p) const {
     float eval = 0.0;
     for (const VolumeSPtr<float>& field : *_fields){
-        eval += std::expf(field->eval(p) * _blend_factor);
+        eval += std::exp(field->eval(p) * _blend_factor);
     }
     return eval - _shape_broadness;
 }

@@ -34,10 +34,10 @@ VolumeSPtr<float> pow(const VolumeSPtr<float>& a, const VolumeSPtr<float>& to_po
 
 vspf pow(const vspf& a, float power){
     auto eval = [a, power](const Vector& v){
-        return std::powf(a->eval(v), power);
+        return std::pow(a->eval(v), power);
     };
     auto grad = [a, power](const Vector& p){
-        return power * std::powf(a->eval(p), power - 1.0) * a->grad(p);
+        return power * std::pow(a->eval(p), power - 1.0) * a->grad(p);
     };
     return funcfield<float>(eval, grad);
 }

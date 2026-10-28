@@ -21,7 +21,7 @@ const ConeField::volumeDataType ConeField::eval(const Vector& p) const {
     } else if (diff_dot_n < 0){
         return_val = -diff_dot_n;
     } else {
-        return_val = -_theta + std::acosf(diff_dot_n / (p - _x_0).magnitude());
+        return_val = -_theta + std::acos(diff_dot_n / (p - _x_0).magnitude());
     }
     return return_val;
 }
@@ -29,8 +29,8 @@ const ConeField::volumeDataType ConeField::eval(const Vector& p) const {
 
 const BoxField::volumeDataType BoxField::eval(const Vector& p) const {
     auto v = p - _center;
-    return std::powf(v.X(), _rounding_exponent) + std::powf(v.Y(), _rounding_exponent) + 
-            std::powf(v.Z(), _rounding_exponent) - _r_to_rounding_exp;
+    return std::pow(v.X(), _rounding_exponent) + std::pow(v.Y(), _rounding_exponent) + 
+            std::pow(v.Z(), _rounding_exponent) - _r_to_rounding_exp;
 }
 
 const IcosahedronField::volumeDataType IcosahedronField::eval(const Vector& p) const {
@@ -41,9 +41,9 @@ const IcosahedronField::volumeDataType IcosahedronField::eval(const Vector& p) c
         auto tx = v.X() * _T;
         auto ty = v.Y() * _T;
         auto tz = v.Z() * _T;
-        return 2.0 - std::cosf(v.X() + ty) - std::cosf(v.X() - ty) - 
-                std::cosf(v.Y() + tz) - std::cosf(v.Y() - tz) - 
-                std::cosf(v.Z() + tx) - std::cosf(v.Z() - tx);
+        return 2.0 - std::cos(v.X() + ty) - std::cos(v.X() - ty) - 
+                std::cos(v.Y() + tz) - std::cos(v.Y() - tz) - 
+                std::cos(v.Z() + tx) - std::cos(v.Z() - tx);
     }
 }
 

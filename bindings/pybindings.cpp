@@ -4,7 +4,9 @@ ChatGPT mini
 */
 
 
+#include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include <pybind11/functional.h>
@@ -16,6 +18,50 @@ ChatGPT mini
 
 namespace py = pybind11;
 using namespace lux;
+
+// Python wrappers own OpenVDB grids, allowing make_grid_field to receive
+// usable grids without depending on a separate OpenVDB Python module.
+struct FloatGridHandle { openvdb::FloatGrid::Ptr grid; };
+struct ColorGridHandle { openvdb::Vec3SGrid::Ptr grid; };
+
+template <typename T>
+void bind_field_operations(py::module_& module) {
+    using FieldPtr = VSPtr<T>;
+    module.def("add", &add<T, T>, py::arg("a"), py::arg("b"));
+    module.def("subtract", &subtract<T, T>, py::arg("a"), py::arg("b"));
+    module.def("scale", &scale<T, float>, py::arg("field"), py::arg("scale"));
+    module.def("translate", &translate<T>, py::arg("field"), py::arg("delta"));
+    module.def("translate", [](const FieldPtr& f, const Vector& delta) {
+        return translate<T>(f, make_constant<Vector>(delta));
+    }, py::arg("field"), py::arg("delta"));
+    module.def("rotate", &rotate<T>, py::arg("field"), py::arg("axis"), py::arg("angle"));
+    module.def("rotate", [](const FieldPtr& f, const Vector& axis, float angle) {
+        return rotate<T>(f, make_constant<Vector>(axis), make_constant<float>(angle));
+    }, py::arg("field"), py::arg("axis"), py::arg("angle"));
+    module.def("scale_fixed", &scale_fixed<T>, py::arg("field"), py::arg("scale"));
+    module.def("translate_fixed", &translate_fixed<T>, py::arg("field"), py::arg("delta"));
+    module.def("rotate_fixed", &rotate_fixed<T>, py::arg("field"), py::arg("axis"), py::arg("angle"));
+    module.def("make_constant", &make_constant<T>, py::arg("value"));
+    module.def("constant", &make_constant<T>, py::arg("value"));
+    module.def("make_memofield", &make_memofield<T>, py::arg("field"));
+    module.def("make_clear_cache_field", &make_clear_cache_field<T>, py::arg("field"));
+    module.def("make_advect_semi_lagrange", &make_advect_semi_lagrange<T>,
+               py::arg("field"), py::arg("velocity"), py::arg("dt"));
+    module.def("make_warp_field", &make_warp_field<T>, py::arg("field"), py::arg("map"));
+    module.def("negate", [](const FieldPtr& field) { return -field; }, py::arg("field"));
+}
+
+template <typename T>
+void bind_field_class(py::module_& module, const char* name) {
+    py::class_<Volume<T>, std::shared_ptr<Volume<T>>>(module, name)
+        .def("eval", &Volume<T>::eval)
+        .def("grad", &Volume<T>::grad)
+        .def("set_fd_size", &Volume<T>::setFDSize)
+        .def("set_fd_step", py::overload_cast<double>(&Volume<T>::setFDStep))
+        .def("set_fd_step", py::overload_cast<double, double, double>(&Volume<T>::setFDStep))
+        .def("clear_cache", &Volume<T>::clear_cache)
+        .def("typelabel", &Volume<T>::typelabel);
+}
 
 PYBIND11_MODULE(physics_vfx, module)
 {
@@ -59,18 +105,71 @@ PYBIND11_MODULE(physics_vfx, module)
         py::arg("light_position"), py::arg("light_color"), py::arg("light_shadow_kappa"),
         py::arg("settings"), py::arg("filename"));
 
-    py::class_<Volume<float>, std::shared_ptr<Volume<float>>> field(
-        module,
-        "Field"
-    );
+    py::class_<Color>(module, "Color")
+        .def(py::init<>())
+        .def(py::init<double, double, double, double>(), py::arg("red"), py::arg("green"),
+             py::arg("blue"), py::arg("alpha") = 0.0)
+        .def_property_readonly("red", &Color::red)
+        .def_property_readonly("green", &Color::green)
+        .def_property_readonly("blue", &Color::blue)
+        .def_property_readonly("alpha", &Color::alpha);
 
-    field
-        .def("eval", &Volume<float>::eval)
-        .def("grad", &Volume<float>::grad)
-        .def("set_fd_size", &Volume<float>::setFDSize)
-        .def("set_fd_step",
-             py::overload_cast<double>(&Volume<float>::setFDStep))
-        .def("typelabel", &Volume<float>::typelabel);
+    py::class_<Matrix>(module, "Matrix")
+        .def(py::init<>())
+        .def("get", [](const Matrix& m, int row, int col) {
+            if (row < 0 || row >= 3 || col < 0 || col >= 3) throw py::index_error();
+            return m.Get(row, col);
+        }, py::arg("row"), py::arg("col"));
+
+    bind_field_class<float>(module, "Field");
+    bind_field_class<Vector>(module, "VectorField");
+    bind_field_class<Color>(module, "ColorField");
+    bind_field_operations<float>(module);
+    bind_field_operations<Vector>(module);
+    bind_field_operations<Color>(module);
+
+    py::class_<FSVals>(module, "FSVals")
+        .def(py::init<>())
+        .def(py::init<float, float, Vector, float, float>(),
+             py::arg("roughness"), py::arg("octaves"), py::arg("translation"),
+             py::arg("frequency"), py::arg("frequency_jump"))
+        .def_readwrite("r", &FSVals::r)
+        .def_readwrite("octaves", &FSVals::octaves)
+        .def_readwrite("translation", &FSVals::translation)
+        .def_readwrite("freq", &FSVals::freq)
+        .def_readwrite("fjump", &FSVals::fjump);
+
+    py::class_<FloatGridHandle>(module, "FloatGrid")
+        .def(py::init([](float voxel_size, float background) {
+            if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive");
+            openvdb::initialize();
+            auto grid = openvdb::FloatGrid::create(background);
+            grid->setTransform(openvdb::math::Transform::createLinearTransform(voxel_size));
+            return FloatGridHandle{grid};
+        }), py::arg("voxel_size"), py::arg("background") = 0.0f)
+        .def("set_value", [](FloatGridHandle& g, int x, int y, int z, float value) {
+            g.grid->getAccessor().setValue(openvdb::Coord(x, y, z), value);
+        })
+        .def("get_value", [](const FloatGridHandle& g, int x, int y, int z) {
+            return g.grid->getConstAccessor().getValue(openvdb::Coord(x, y, z));
+        });
+
+    py::class_<ColorGridHandle>(module, "ColorGrid")
+        .def(py::init([](float voxel_size) {
+            if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive");
+            openvdb::initialize();
+            auto grid = openvdb::Vec3SGrid::create(openvdb::Vec3s(0, 0, 0));
+            grid->setTransform(openvdb::math::Transform::createLinearTransform(voxel_size));
+            return ColorGridHandle{grid};
+        }), py::arg("voxel_size"))
+        .def("set_value", [](ColorGridHandle& g, int x, int y, int z, const Color& value) {
+            g.grid->getAccessor().setValue(openvdb::Coord(x, y, z), GridTypes<Color>::to_grid(value));
+        })
+        .def("get_value", [](const ColorGridHandle& g, int x, int y, int z) {
+            return GridTypes<Color>::from_grid(g.grid->getConstAccessor().getValue(openvdb::Coord(x, y, z)));
+        });
+    module.def("make_grid_field", [](const FloatGridHandle& g) { return make_grid_field<float>(g.grid); }, py::arg("grid"));
+    module.def("make_grid_field", [](const ColorGridHandle& g) { return make_grid_field<Color>(g.grid); }, py::arg("grid"));
 
     module.def(
         "sphere",
@@ -138,12 +237,6 @@ PYBIND11_MODULE(physics_vfx, module)
         py::arg("minor_radius")
     );
 
-    module.def(
-        "constant",
-        &lux::make_constant<float>,
-        py::arg("value")
-    );
-
     // Scalar field operations
     module.def(
         "exp",
@@ -203,70 +296,35 @@ PYBIND11_MODULE(physics_vfx, module)
 );
 
 
-    module.def(
-        "subtract",
-        &subtract<float, float>,
-        py::arg("a"),
-        py::arg("b")
-    );
+    module.def("pow", py::overload_cast<const vspf&, float>(&lux::pow), py::arg("field"), py::arg("exponent"));
+    module.def("abs", &lux::abs, py::arg("field"));
+    module.def("clamp_fixed", &clamp_fixed, py::arg("field"), py::arg("min"), py::arg("max"));
+    module.def("smoothstep", &smoothstep, py::arg("edge0"), py::arg("edge1"), py::arg("x"));
+    module.def("smoothstep_lerp", &smoothstep_lerp, py::arg("a"), py::arg("b"), py::arg("t"));
+    module.def("make_pyro", &make_pyro, py::arg("field"), py::arg("roughness"),
+        py::arg("octaves"), py::arg("translation"), py::arg("frequency"),
+        py::arg("frequency_jump"), py::arg("amplitude"), py::arg("gamma"), py::arg("iters") = 1);
+    module.def("make_identity_field", &make_identity_field);
+    module.def("make_grad_field", &make_grad_field, py::arg("field"));
+    module.def("makeNPT", &makeNPT, py::arg("field"));
+    module.def("make_iteratedNPT", &make_iteratedNPT, py::arg("field"), py::arg("iters"));
+    module.def("make_eval_dot_grad_over_gradsq", &make_eval_dot_grad_over_gradsq, py::arg("field"));
 
-    module.def(
-        "scale",
-        &scale<float, float>,
-        py::arg("a"),
-        py::arg("b")
-    );
+    module.def("fspn", &fspn<float, Vector>, py::arg("values"), py::arg("point"));
+    module.def("make_fspn", py::overload_cast<float, float, const Vector&, float, float>(&make_fspn),
+        py::arg("roughness"), py::arg("octaves"), py::arg("translation"),
+        py::arg("frequency"), py::arg("frequency_jump"));
+    module.def("make_fspn", [](const FSVals& vals) { return make_fspn(FSVals(vals)); }, py::arg("values"));
+    module.def("make_fade_factor", &make_fade_factor, py::arg("center"), py::arg("fade"), py::arg("radius"));
 
-    module.def(
-        "rotate",
-        &rotate<float>,
-        py::arg("field"),
-        py::arg("axis"),
-        py::arg("angle")
-    );
-
-    module.def(
-        "translate",
-        [](const vspf& field, const Vector& delta) {
-            return translate<float>(
-                field,
-                make_constant<Vector>(delta)
-            );
-        }
-    );
-
-    module.def(
-        "negate",
-        [](const vspf& field) {
-            return -field;
-        }
-    );
-
-    // funcfield too slow for python
-    // module.def(
-    //     "function_field",
-    //     [](py::function eval_function,
-    //        py::object grad_function) -> vspf {
-    //         FunctionField<float>::GradFunc gradient;
-
-    //         if (!grad_function.is_none()) {
-    //             gradient = [grad_function](const Vector& point) {
-    //                 py::gil_scoped_acquire gil;
-    //                 return grad_function(point).cast<Vector>();
-    //             };
-    //         }
-
-    //         auto evaluator = [eval_function](const Vector& point) {
-    //             py::gil_scoped_acquire gil;
-    //             return eval_function(point).cast<float>();
-    //         };
-
-    //         return std::make_shared<FunctionField<float>>(
-    //             std::move(evaluator),
-    //             std::move(gradient)
-    //         );
-    //     },
-    //     py::arg("eval_function"),
-    //     py::arg("grad_function") = py::none()
-    // );
+    // Preserve the shorter existing names while exposing the C++ names too.
+    module.attr("make_plane") = module.attr("plane");
+    module.attr("isf_sphere") = module.attr("sphere");
+    module.attr("isf_torus") = module.attr("torus");
+    module.attr("isf_cone") = module.attr("cone");
+    module.attr("isf_box") = module.attr("box");
+    module.attr("isf_icosahedron") = module.attr("icosahedron");
+    module.attr("isf_steiner_patch") = module.attr("steiner_patch");
+    module.attr("isf_ellipse") = module.attr("ellipse");
+    module.attr("isf_cylinder") = module.attr("cylinder");
 }

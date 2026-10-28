@@ -22,7 +22,7 @@ vspf make_fspn(
 };
 
 vspf make_fspn(const FSVals&& vals){
-    make_fspn(vals.r, vals.octaves, vals.translation, vals.freq, vals.fjump);
+    return make_fspn(vals.r, vals.octaves, vals.translation, vals.freq, vals.fjump);
 }
 
 vspf make_fade_factor(

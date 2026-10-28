@@ -89,3 +89,47 @@ PYTHONPATH="$PWD/build/python:$PWD/python" python -m unittest discover -s python
 
 Set `PBVFX_RUN_RENDER_TESTS=1` to run the image integration test; it also
 requires the OpenImageIO Python bindings and NumPy.
+
+
+## Python field and noise bindings
+
+The `physics_vfx` module exposes the functions in `field_interface.h` and
+`noise_fields.h`, except the templated `funcfield` callback factory. Existing
+short names such as `sphere`, `plane`, and `constant` remain available; the
+corresponding C++ names (`isf_sphere`, `make_plane`, and `make_constant`) are
+also available. `Field`, `VectorField`, and `ColorField` represent scalar,
+vector, and color volumes. Their `eval` methods sample world-space positions;
+`grad`, finite-difference settings, and `clear_cache` are also exposed.
+Vector-field gradients are returned as `Matrix` values (`matrix.get(row, col)`).
+The existing C++ color field gradient type is an integer, not a color gradient.
+
+Most field operations accept scalar, vector, or color fields of matching types.
+For `scale`, the second argument is a scalar **field** and scales the position
+at which the input is evaluated; `scale_fixed` takes a `Vector` instead.
+`translate` and `rotate` accept either field-valued arguments or fixed
+`Vector`/float arguments. Their `_fixed` variants take fixed arguments directly.
+Angles are in radians and use the C++ field operation's rotation convention.
+
+```python
+import physics_vfx as fx
+
+origin = fx.Vector(0, 0, 0)
+sphere = fx.isf_sphere(origin, 1.0)
+moved = fx.translate_fixed(sphere, fx.Vector(2, 0, 0))
+print(moved.eval(fx.Vector(2, 0, 0)))  # -1
+
+noise_values = fx.FSVals(0.5, 3.0, origin, 1.0, 2.0)
+noise = fx.make_fspn(noise_values)
+print(noise.eval(fx.Vector(0.1, 0.2, 0.3)))
+```
+
+`FloatGrid(voxel_size, background=0)` and `ColorGrid(voxel_size)` own OpenVDB
+grids. `set_value(x, y, z, value)` and `get_value(x, y, z)` use integer voxel
+coordinates. Pass either grid to `make_grid_field` to sample it at world-space
+positions. Color grids store RGB; sampled alpha is zero.
+
+With the module built and available on `PYTHONPATH`, run the field tests with:
+
+```bash
+PYTHONPATH="$PWD/build/python" python -m unittest discover -s python -p 'test_field_bindings.py' -v
+```

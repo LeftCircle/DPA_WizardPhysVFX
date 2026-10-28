@@ -160,7 +160,7 @@ void render_wedges(
         return a + t * (b - a);
     };
     auto log_lerp = [lerp](float a, float b, float t){
-        return std::expf(lerp(std::log(a), std::log(b), t));
+        return std::exp(lerp(std::log(a), std::log(b), t));
     };
     using InterpFunc = std::function<float(float, float, float)>;
 
@@ -273,7 +273,7 @@ void render_pyro_wedges(
         return a + t * (b - a);
     };
     auto log_lerp = [lerp](float a, float b, float t){
-        return std::expf(lerp(std::log(a), std::log(b), t));
+        return std::exp(lerp(std::log(a), std::log(b), t));
     };
     using InterpFunc = std::function<float(float, float, float)>;
 
@@ -392,7 +392,7 @@ void render_wisp_wedges(
         return a + t * (b - a);
     };
     auto log_lerp = [lerp](float a, float b, float t){
-        return std::expf(lerp(std::log(a), std::log(b), t));
+        return std::exp(lerp(std::log(a), std::log(b), t));
     };
     using InterpFunc = std::function<float(float, float, float)>;
 

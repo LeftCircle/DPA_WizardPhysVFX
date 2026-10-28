@@ -426,8 +426,12 @@ public:
 	}
 
 	const volumeGradType grad(const Vector& p) const override { 
-        auto grad = this->_a->grad(rotation(p, std::get<0>(this->_values)->eval(p), std::get<1>(this->_values)->eval(p)));
-		return rotation(grad, std::get<0>(this->_values)->eval(p), std::get<1>(this->_values)->eval(p));
+        if constexpr (std::is_same_v<T, float>) {
+            auto grad = this->_a->grad(rotation(p, std::get<0>(this->_values)->eval(p), std::get<1>(this->_values)->eval(p)));
+            return rotation(grad, std::get<0>(this->_values)->eval(p), std::get<1>(this->_values)->eval(p));
+        } else {
+            return Volume<T>::grad(p);
+        }
     }
 };
 
@@ -503,5 +507,6 @@ std::shared_ptr<Volume<T>> operator-(const VolumeSPtr<T> a)
 
 
 } // end namespace lux
+
 
 

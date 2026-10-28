@@ -51,7 +51,7 @@ public:
             Vector p0 = Vector(_rng(_min, _max), _rng(_min, _max), _rng(_min, _max));
             p0 = p0 == Vector(0, 0, 0) ? Vector(_rng(_min, _max), _rng(_min, _max), 1) : p0;
             Vector proj = p0 / p0.magnitude() * hw;
-            float r = std::powf(std::abs(fspn<float, Vector>(_fspn1, p0)), _clump);
+            float r = std::pow(std::abs(fspn<float, Vector>(_fspn1, p0)), _clump);
             auto p3 = r * proj;
             // apply guid particle location and pscale
             auto p4 = _location + _pscale * p3[0] * _axis.t + p3[1] * _axis.n + p3[2] * _axis.b;
@@ -153,6 +153,7 @@ auto wisp_uniform(
 
 
 } // end namespace lux
+
 
 
 

@@ -40,7 +40,9 @@ VolumeSPtr<T> funcfield(
 }
 
 template<typename T, typename U>
-std::shared_ptr<Volume<T>> add(const VolumeSPtr<T>& a, const VolumeSPtr<U>& b);
+std::shared_ptr<Volume<T>> add(const VolumeSPtr<T>& a, const VolumeSPtr<U>& b) {
+    return std::make_shared<AddFields<T, U>>(a, b);
+}
 
 template<typename T, typename U>
 std::shared_ptr<Volume<T>> subtract(const VolumeSPtr<T>& a, const VolumeSPtr<U>& b) {
@@ -96,7 +98,7 @@ VSPtr<T> make_memofield(const VSPtr<T>& a){
 }
 
 template <typename T>
-vspf make_clear_cache_field(const VSPtr<T>& a){
+VSPtr<T> make_clear_cache_field(const VSPtr<T>& a){
     auto eval = [a](const Vector& p){
         a->clear_cache();
         return a->eval(p);
@@ -139,12 +141,16 @@ VSPtr<T> make_advect_semi_lagrange(const VSPtr<T>& a, const vspv& u, float dt){
     auto eval = [a, u, dt](const Vector& p){
         return a->eval(p - u->eval(p) * dt);
     };
-    auto grad = [a, u, dt](const Vector& p){
-        auto x = p - u->eval(p) * dt;
-        auto M = unitMatrix() - (u->grad(p) * dt);
-        return M * a->grad(x);
-    };
-    return funcfield<T>(eval, grad);
+    if constexpr (std::is_same_v<T, Color>) {
+        return funcfield<T>(eval);
+    } else {
+        auto grad = [a, u, dt](const Vector& p){
+            auto x = p - u->eval(p) * dt;
+            auto M = unitMatrix() - (u->grad(p) * dt);
+            return M * a->grad(x);
+        };
+        return funcfield<T>(eval, grad);
+    }
 }
 
 // ---------------------------------------------------------------------------------
@@ -251,10 +257,14 @@ VSPtr<T> make_warp_field(const VSPtr<T>& f, const VSPtr<Vector> map){
     auto eval = [f, map](const Vector& p){
         return f->eval(map->eval(p));
     };
-    auto grad = [f, map](const Vector& p){
-        return map->grad(p) * f->grad(map->eval(p));
-    };
-    return funcfield<T>(eval, grad);
+    if constexpr (std::is_same_v<T, Color>) {
+        return funcfield<T>(eval);
+    } else {
+        auto grad = [f, map](const Vector& p){
+            return map->grad(p) * f->grad(map->eval(p));
+        };
+        return funcfield<T>(eval, grad);
+    }
 }
 
 // The identity field has eval f(x) = x and grad = Identity
@@ -269,6 +279,7 @@ VSPtr<Vector> make_eval_dot_grad_over_gradsq(const vspf& f);
 
 
 } // end namespace lux
+
 
 
 

@@ -162,10 +162,7 @@ class Volume : public VolumeBase
    virtual const volumeDataType eval( const Vector& P ) const { volumeDataType base; base = base - base; return base; }
    virtual const volumeGradType grad( const Vector& P ) const 
    {
-      volumeDataType valueX, valueY, valueZ;
-      valueX = valueX - valueX;
-      valueY = valueY - valueY;
-      valueZ = valueZ - valueZ;
+      volumeDataType valueX{}, valueY{}, valueZ{};
       Vector dx(gradParams.step_x(),0,0), dy(0,gradParams.step_y(),0), dz(0,0,gradParams.step_z());
       for( size_t i=1;i<=(size_t)gradParams.nbTerms();i++ )
       {
@@ -200,3 +197,4 @@ using vspc = VolumeSPtr<Color>;
 }
 
 #endif
+

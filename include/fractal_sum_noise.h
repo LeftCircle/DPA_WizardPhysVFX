@@ -26,23 +26,6 @@ template <typename T, typename Vec, typename Func>
 constexpr T fractal_sum(
     const Vec& eval_point,
     Func&& func,
-    const FSVals& vals
-){
-    return fractal_sum<T, Vec>(
-        eval_point,
-        std::forward<Func>(func),
-        vals.r,
-        vals.octaves,
-        vals.translation,
-        vals.freq,
-        vals.fjump
-    );
-}
-
-template <typename T, typename Vec, typename Func>
-constexpr T fractal_sum(
-    const Vec& eval_point,
-    Func&& func,
     float r, // roughness
     float octaves,
     const Vec& translation,
@@ -64,8 +47,15 @@ constexpr T fractal_sum(
     return scale * result;
 }
 
+template <typename T, typename Vec, typename Func>
+constexpr T fractal_sum(const Vec& eval_point, Func&& func, const FSVals& vals) {
+    return fractal_sum<T, Vec>(eval_point, std::forward<Func>(func), vals.r,
+        vals.octaves, vals.translation, vals.freq, vals.fjump);
+}
+
 
 
 } // end namespace lux
+
 
 

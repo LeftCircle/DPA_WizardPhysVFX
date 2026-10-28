@@ -32,7 +32,7 @@ public:
 
     float get_density_vs() const { return _density_vs; }
     float get_color_vs() const { return _color_vs; }
-    float get_shadow_vs() const { return _color_vs; }
+    float get_shadow_vs() const { return _sm_vs; }
 
 
     const coordbbox& get_density_bounds() const { return _density_bounds; }

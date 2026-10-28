@@ -40,3 +40,52 @@ the starter kit code.
 
 
 
+
+
+## Render a USD sphere
+
+The CPU renderer can load one `UsdGeomSphere`, one `UsdLuxSphereLight`, and
+one perspective `UsdGeomCamera` through `UsdRenderSettings`. See
+[`python/inputs/sphere.usda`](python/inputs/sphere.usda). Build this project
+with `PBVFX_BUILD_PYTHON=ON`, and make the OpenUSD Python bindings (`pxr`)
+available in the same Python environment as the built `physics_vfx` module.
+The project also requires its existing CUDA, OpenVDB, image-processing and
+submodule dependencies even for this CPU render path.
+
+```bash
+cmake -S . -B build -DPBVFX_BUILD_PYTHON=ON
+cmake --build build
+PYTHONPATH="$PWD/build/python" python python/usd_to_pbvfx.py \
+  python/inputs/sphere.usda --output outputs/sphere.exr
+```
+
+Use `--volume-meters-per-unit` to change renderer units (default: meters).
+Stage positions, radius, clip distances, and authored step and voxel sizes
+are converted using the USD stage's `metersPerUnit`. Custom settings are on
+the RenderSettings prim: `pbvfx:minStep`, `pbvfx:maxStep`, `pbvfx:kappa`,
+`pbvfx:shadowKappa`, `pbvfx:shadowStep`, `pbvfx:densityVoxelSize`,
+`pbvfx:colorVoxelSize`, and `pbvfx:shadowVoxelSize`. Unauthored values use
+`RenderSettings` defaults in renderer units. A `pbvfx:shadowKappa` on the
+light overrides the render setting. The kappa values are renderer parameters;
+they are not automatically rescaled when changing renderer units.
+Grid bounds are derived from the sphere instead of `model_halfsize`;
+`cam_dist` is replaced by the camera's authored world transform.
+
+The sphere's transform must have uniform scale and no shear; the camera must
+be perspective with zero aperture offsets, square pixels and matching aperture
+and output aspect ratios. One render settings prim and one sphere light are
+required. The light is approximated as a point: its RGB contribution is
+`color * intensity * 2^exposure`; its USD area/radius and physical light units
+are not simulated. Normalized and color-temperature lights are rejected.
+Clipping distances are used along the ray, an approximation of USD camera clip
+planes away from the image center. The sphere is a filled volume with constant
+white color, not an opaque surface shader. The loader reads default time only.
+
+Run the loader tests with the built module and `pxr` on `PYTHONPATH`:
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python -m unittest discover -s python -p 'test_usd_sphere*.py'
+```
+
+Set `PBVFX_RUN_RENDER_TESTS=1` to run the image integration test; it also
+requires the OpenImageIO Python bindings and NumPy.

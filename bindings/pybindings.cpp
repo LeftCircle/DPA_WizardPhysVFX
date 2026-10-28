@@ -12,6 +12,7 @@ ChatGPT mini
 #include <pybind11/stl.h>
 
 #include "field_interface.h"
+#include "usd_sphere_render.h"
 
 namespace py = pybind11;
 using namespace lux;
@@ -34,6 +35,29 @@ PYBIND11_MODULE(physics_vfx, module)
                    std::to_string(value.Y()) + ", " +
                    std::to_string(value.Z()) + ")";
         });
+
+    py::class_<RenderSettings>(module, "RenderSettings")
+        .def(py::init<>())
+        .def_readwrite("model_halfsize", &RenderSettings::model_halfsize)
+        .def_readwrite("width", &RenderSettings::width)
+        .def_readwrite("height", &RenderSettings::height)
+        .def_readwrite("near_dist", &RenderSettings::near_dist)
+        .def_readwrite("far_dist", &RenderSettings::far_dist)
+        .def_readwrite("min_step", &RenderSettings::min_step)
+        .def_readwrite("max_step", &RenderSettings::max_step)
+        .def_readwrite("kappa", &RenderSettings::kappa)
+        .def_readwrite("shadow_kappa", &RenderSettings::shadow_kappa)
+        .def_readwrite("shadow_step", &RenderSettings::shadow_step)
+        .def_readwrite("cam_dist", &RenderSettings::cam_dist)
+        .def_property("density_voxel_size", &RenderSettings::get_density_vs, &RenderSettings::set_density_vs)
+        .def_property("color_voxel_size", &RenderSettings::get_color_vs, &RenderSettings::set_color_vs)
+        .def_property("shadow_voxel_size", &RenderSettings::get_shadow_vs, &RenderSettings::set_shadow_vs);
+
+    module.def("render_usd_sphere", &render_usd_sphere,
+        py::arg("sphere"), py::arg("center"), py::arg("radius"),
+        py::arg("eye"), py::arg("view"), py::arg("up"), py::arg("horizontal_fov"),
+        py::arg("light_position"), py::arg("light_color"), py::arg("light_shadow_kappa"),
+        py::arg("settings"), py::arg("filename"));
 
     py::class_<Volume<float>, std::shared_ptr<Volume<float>>> field(
         module,

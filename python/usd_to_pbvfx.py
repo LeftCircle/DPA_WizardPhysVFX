@@ -317,24 +317,7 @@ def create_volume_from_usd(
     return union_fields(fields), field_names
 
 
-scene_field, names = create_volume_from_usd(
-    "inputs/model.usda",
-    volume_meters_per_unit=0.01,
-)
 
-scene_field = fx.negate(fx.mask(scene_field))
-
-print(names)
-# ['/Cube1', '/Cone1', '/Cylinder1', '/Sphere1']
-
-fx.render_field(
-    scene_field,
-    "outputs/test.exr",
-    width=960,
-    height=540,
-    eye=fx.Vector(0.0, 0.0, 8),
-    view=fx.Vector(0.0, 0.0, -1.0),
-    up=fx.Vector(0.0, 1.0, 0.0),
-    sfar=15,
-    ds=0.05,
-)
+if __name__ == "__main__":
+    from usd_sphere_scene import main
+    main()

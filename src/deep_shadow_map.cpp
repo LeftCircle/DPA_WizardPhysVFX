@@ -19,8 +19,8 @@ GridPtr<float> make_dsm_grid(
     auto grid = stamp_grid_parallel<float>(voxel_size, 0.00001f, stamp_func, cond, bounds);
 
     // Grid should now have active cells can do a parallel for each now
-    auto eval_func = [density_field, step_size, kappa](const Vector& p){ 
-        auto val = density_field->eval(p) * step_size * kappa;
+    auto eval_func = [density_field, kappa](const Vector& p){ 
+        auto val = density_field->eval(p) * kappa;
         return val < 0 ? val : 0;
     };
 
@@ -77,4 +77,5 @@ vspf make_deep_shadow_map_parallel(
 
 
 } // end namespace lux
+
 

@@ -3,7 +3,9 @@
 #include "field_interface.h"
 #include "lights.h"
 #include "openvdb_helpers.h"
-#include <random>
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
 
 namespace lux{
 
@@ -45,17 +47,17 @@ float accumulate_over_steps(
     AccumFunc func,
     float initial = 0
 ){
-    std::mt19937 rng(std::random_device{}());
-    std::uniform_real_distribution<float> variation(0.01f, 7.0f);
-
+    if (!(step_size > 0) || !std::isfinite(step_size)) {
+        throw std::invalid_argument("shadow step size must be finite and positive");
+    }
+    const float distance = (end - start).magnitude();
+    if (distance == 0) return initial;
     const auto dir = (end - start).unitvector();
-    float smax = (end - start).magnitude();
     float s = 0;
-    while (s < smax){
-        auto pos = start + s * dir;
-        initial += func(pos);
-        const float remaining = smax - s;
-        const float ds = std::min(step_size * variation(rng), remaining);
+    while (s < distance) {
+        const float ds = std::min(step_size, distance - s);
+        const auto pos = start + (s + 0.5f * ds) * dir;
+        initial += func(pos) * ds;
         s += ds;
     }
     return initial;
@@ -63,6 +65,7 @@ float accumulate_over_steps(
 
 
 } // end namespace lux
+
 
 
 

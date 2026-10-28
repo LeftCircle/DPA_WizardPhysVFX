@@ -132,6 +132,7 @@ target_sources(pbvfx PRIVATE
 set_target_properties(pbvfx PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
 )
 
 target_include_directories(pbvfx
@@ -251,4 +252,12 @@ if(PBVFX_BUILD_PYTHON)
         PRIVATE
             pbvfx
     )
+
+    if(BUILD_TESTING)
+        add_test(NAME physics_vfx_python_import
+            COMMAND "${CMAKE_COMMAND}" -E env
+                "PYTHONPATH=$<TARGET_FILE_DIR:physics_vfx_python>"
+                "${Python_EXECUTABLE}" -c "import physics_vfx"
+        )
+    endif()
 endif()

@@ -50,14 +50,18 @@ float accumulate_over_steps(
     if (!(step_size > 0) || !std::isfinite(step_size)) {
         throw std::invalid_argument("shadow step size must be finite and positive");
     }
+    std::mt19937 rng(std::random_device{}());
+    std::uniform_real_distribution<float> variation(0.01f, 7.0f);
     const float distance = (end - start).magnitude();
     if (distance == 0) return initial;
     const auto dir = (end - start).unitvector();
+    float smax = (end - start).magnitude();
     float s = 0;
-    while (s < distance) {
-        const float ds = std::min(step_size, distance - s);
-        const auto pos = start + (s + 0.5f * ds) * dir;
+    while (s < smax){
+        const float ds = std::min(step_size * variation(rng), distance - s);
+        auto pos = start + s * dir;
         initial += func(pos) * ds;
+        const float remaining = smax - s;
         s += ds;
     }
     return initial;

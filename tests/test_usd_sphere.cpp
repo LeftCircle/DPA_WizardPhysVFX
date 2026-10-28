@@ -20,6 +20,7 @@ TEST_CASE("USD sphere field and density signs") {
 TEST_CASE("shadow integration includes the final partial step") {
     auto value = accumulate_over_steps(Vector(0, 0, 0), Vector(1, 0, 0), 0.3f,
         [](const Vector&) { return -2.0f; });
+    std::cout << "accumulated result is " << value << std::endl;
     REQUIRE(value == Catch::Approx(-2.0f));
 }
 

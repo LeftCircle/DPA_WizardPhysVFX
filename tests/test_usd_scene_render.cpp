@@ -61,7 +61,7 @@ TEST_CASE("general USD renderer writes red and green volumes") {
     REQUIRE(image->spec().height == rs.height);
     REQUIRE(image->spec().nchannels == 4);
     std::vector<float> pixels(static_cast<size_t>(rs.width) * rs.height * 4);
-    REQUIRE(image->read_image(OIIO::TypeDesc::FLOAT, pixels.data()));
+    REQUIRE(image->read_image(0, 0, 0, 4, OIIO::TypeDesc::FLOAT, pixels.data()));
     image->close();
     size_t red_pixels = 0, green_pixels = 0;
     double two_light_sum = 0;
@@ -77,7 +77,7 @@ TEST_CASE("general USD renderer writes red and green volumes") {
         Vector(-2, -1.5, -1.5), Vector(2, 1.5, 1.5), one_light_output.string());
     auto one_light_image = OIIO::ImageInput::open(one_light_output.string());
     REQUIRE(one_light_image);
-    REQUIRE(one_light_image->read_image(OIIO::TypeDesc::FLOAT, pixels.data()));
+    REQUIRE(one_light_image->read_image(0, 0, 0, 4, OIIO::TypeDesc::FLOAT, pixels.data()));
     one_light_image->close();
     double one_light_sum = 0;
     for (size_t i = 0; i < pixels.size(); i += 4)

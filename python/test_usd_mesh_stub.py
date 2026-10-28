@@ -70,7 +70,7 @@ def fixture():
 
 class USDMeshTranslationTests(unittest.TestCase):
     def test_transform_units_topology_and_field_dispatch(self):
-        module, _, calls = fixture()
+        module, prim, calls = fixture()
         result = module.usd_mesh_to_field('fixture.usda', 0.1, prim_path='/World/Mesh', time=24)
         self.assertEqual(result[0], 'field')
         voxel_size, points, triangles, quads, half_width = calls[0]
@@ -80,6 +80,11 @@ class USDMeshTranslationTests(unittest.TestCase):
         self.assertEqual(triangles[0], (0, 2, 1))
         self.assertEqual(quads, [])
         self.assertEqual(half_width, 3)
+        bounds_min, bounds_max = module.mesh_world_bounds(prim)
+        self.assertEqual(bounds_min, (0.1, 0.2, 0.3))
+        self.assertAlmostEqual(bounds_max[0], 0.12)
+        self.assertAlmostEqual(bounds_max[1], 0.23)
+        self.assertAlmostEqual(bounds_max[2], 0.31)
 
     def test_invalid_topology_and_subdivision_are_rejected(self):
         module, prim, _ = fixture()

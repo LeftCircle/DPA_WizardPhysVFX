@@ -16,6 +16,7 @@ ChatGPT mini
 #include "field_interface.h"
 #include "openvdb_helpers.h"
 #include "usd_sphere_render.h"
+#include "usd_scene_render.h"
 #include "Camera.h"
 #include "lights.h"
 
@@ -107,6 +108,10 @@ PYBIND11_MODULE(physics_vfx, module)
         py::arg("eye"), py::arg("view"), py::arg("up"), py::arg("horizontal_fov"),
         py::arg("light_position"), py::arg("light_color"), py::arg("light_shadow_kappa"),
         py::arg("settings"), py::arg("filename"));
+
+    module.def("render_usd_scene", &render_usd_scene, py::arg("density"), py::arg("color"),
+        py::arg("camera"), py::arg("lights"), py::arg("settings"), py::arg("bounds_min"),
+        py::arg("bounds_max"), py::arg("filename"), py::call_guard<py::gil_scoped_release>());
 
     py::class_<Color>(module, "Color")
         .def(py::init<>())

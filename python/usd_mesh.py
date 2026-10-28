@@ -12,6 +12,28 @@ def _positive(value, name):
     return value
 
 
+def mesh_world_bounds(prim, volume_meters_per_unit=1.0, time=None):
+    """Return world-space bounds of the authored mesh points in renderer units."""
+    if not prim or not prim.IsA(UsdGeom.Mesh):
+        raise ValueError('Expected a USD Mesh prim')
+    scale = _positive(UsdGeom.GetStageMetersPerUnit(prim.GetStage()), 'stage metersPerUnit') / _positive(
+        volume_meters_per_unit, 'volume_meters_per_unit')
+    timecode = Usd.TimeCode.Default() if time is None else Usd.TimeCode(float(time))
+    points = UsdGeom.Mesh(prim).GetPointsAttr().Get(timecode)
+    if points is None or not len(points):
+        raise ValueError(f'{prim.GetPath()}: mesh must have points')
+    matrix = UsdGeom.XformCache(timecode).GetLocalToWorldTransform(prim)
+    world_points = []
+    for p in points:
+        transformed = matrix.Transform(Gf.Vec3d(float(p[0]), float(p[1]), float(p[2])))
+        point = tuple(float(v) * scale for v in transformed)
+        if not all(math.isfinite(v) for v in point):
+            raise ValueError(f'{prim.GetPath()}: transformed points must be finite')
+        world_points.append(point)
+    return (tuple(min(p[i] for p in world_points) for i in range(3)),
+            tuple(max(p[i] for p in world_points) for i in range(3)))
+
+
 def mesh_prim_to_grid(prim, voxel_size, half_width=3.0, volume_meters_per_unit=1.0, time=None):
     """Voxelize a USD Mesh prim in renderer world space.
 

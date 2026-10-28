@@ -3,6 +3,7 @@ import importlib.util
 import math
 from pathlib import Path
 import sys
+import tempfile
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -119,7 +120,7 @@ def fixture():
         setattr(fx, name, lambda *args, name=name: (name, args))
     fx.affine_transform_field = lambda field, origin, x, y, z: ('transformed', field, origin, x, y, z)
     fx.RenderSettings = SettingsObject
-    fx.render_usd_sphere = lambda *args: calls.append(args)
+    fx.render_usd_scene = lambda *args: calls.append(args)
     pxr = ModuleType('pxr')
     pxr.Gf = SimpleNamespace(Vec3d=lambda *v: v)
     pxr.Usd = SimpleNamespace(Stage=SimpleNamespace(Open=lambda _: stage),
@@ -152,8 +153,12 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(scene.settings.density_voxel_size, 0.1)
         self.assertEqual(scene.settings.shadow_voxel_size, 0.2)
         scene.render('out.exr')
-        self.assertEqual(calls[0][0], scene.field)
+        self.assertEqual(calls[0][0], scene.density)
+        self.assertEqual(calls[0][1], scene.color)
+        self.assertEqual(calls[0][3], scene.lights)
         self.assertEqual(calls[0][-1], 'out.exr')
+        self.assertLess(scene.bounds_min[0], scene.center[0] - scene.radius)
+        self.assertGreater(scene.bounds_max[0], scene.center[0] + scene.radius)
 
     def test_rejects_unsupported_transforms_and_aspect(self):
         module, sphere, camera, _, settings, _ = fixture()
@@ -180,7 +185,7 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(scene.up, (0, 1, 0))
 
     def test_general_scene_dispatch_and_colors(self):
-        module, sphere, _, _, _, _ = fixture()
+        module, sphere, _, _, _, calls = fixture()
         stage = module.Usd.Stage.Open('scene')
         original = list(stage.Traverse())
         sphere.values['primvars:displayColor'] = [(1, 0, 0)]
@@ -191,6 +196,7 @@ class TranslationTests(unittest.TestCase):
         stage.Traverse = lambda: original + tagged + meshes
         fake_mesh = ModuleType('usd_mesh')
         fake_mesh.mesh_prim_to_field = lambda prim, voxel, half_width, unit: ('mesh', prim.path)
+        fake_mesh.mesh_world_bounds = lambda prim, unit: ((-10, -5, -1), (10, -4, 1))
         with patch.dict(sys.modules, {'usd_mesh': fake_mesh}):
             scene = module.load_scene('scene')
         self.assertEqual(len(scene.objects), 12)
@@ -202,6 +208,12 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(len(scene.lights), 1)
         self.assertEqual(scene.density[0], 'negate')
         self.assertEqual(scene.color[0], 'color')
+        scene.render('mixed.exr')
+        self.assertEqual(calls[0][0], scene.density)
+        self.assertEqual(calls[0][1], scene.color)
+        self.assertEqual(calls[0][3], scene.lights)
+        self.assertLess(scene.bounds_min[0], -10)
+        self.assertGreater(scene.bounds_max[0], 10)
 
     def test_unknown_tags_and_untagged_primitives_are_rejected(self):
         module, sphere, _, _, _, _ = fixture()
@@ -211,6 +223,25 @@ class TranslationTests(unittest.TestCase):
         del sphere.values['pbvfx:isf_type']
         with self.assertRaisesRegex(ValueError, 'untagged geometry must be a USD Mesh'):
             module.load_scene('scene')
+
+    def test_multiple_lights_are_passed_to_renderer(self):
+        module, _, _, light, _, calls = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        prims = list(stage.Traverse())
+        second = Prim(Light, '/light2', dict(light.values), Matrix((-3, 0, 2)))
+        stage.Traverse = lambda: prims + [second]
+        scene = module.load_scene('scene')
+        scene.render('two_lights.exr')
+        self.assertEqual(len(scene.lights), 2)
+        self.assertEqual(calls[0][3], scene.lights)
+
+    def test_cli_dispatches_general_renderer(self):
+        module, _, _, _, _, calls = fixture()
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'nested' / 'render.exr'
+            module.main(['scene.usda', '--output', str(output)])
+            self.assertTrue(output.parent.is_dir())
+            self.assertEqual(calls[0][-1], str(output))
 
 
 if __name__ == '__main__': unittest.main()

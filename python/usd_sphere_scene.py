@@ -196,6 +196,8 @@ class SceneObject:
     rgb: tuple
     center: tuple = None
     radius: float = None
+    bounds_min: tuple = None
+    bounds_max: tuple = None
 
 
 def _display_color(prim):
@@ -237,6 +239,17 @@ ISF_TYPES = ('isf_sphere', 'isf_torus', 'isf_cone', 'isf_box', 'isf_icosahedron'
              'isf_steiner_patch', 'isf_ellipse', 'isf_cylinder')
 
 
+def _transformed_bounds(matrix, half_extent, unit_scale):
+    """Conservatively transform a local box into world-space bounds."""
+    corners = []
+    for x in (-half_extent, half_extent):
+        for y in (-half_extent, half_extent):
+            for z in (-half_extent, half_extent):
+                corners.append(_vec(matrix.Transform(Gf.Vec3d(x, y, z)), unit_scale))
+    return (tuple(min(p[i] for p in corners) for i in range(3)),
+            tuple(max(p[i] for p in corners) for i in range(3)))
+
+
 def get_isf_object(prim, cache, unit_scale):
     """Convert a prim tagged with pbvfx:isf_type to an analytic field."""
     kind = _custom(prim, 'isf_type', None)
@@ -259,39 +272,52 @@ def get_isf_object(prim, cache, unit_scale):
         center = _vec(matrix.ExtractTranslation(), unit_scale)
         radius_world = radius * lengths[0] * unit_scale
         field = fx.isf_sphere(_fxvec(center), radius_world)
+        bounds_min = tuple(v - radius_world for v in center)
+        bounds_max = tuple(v + radius_world for v in center)
     else:
         if kind == 'isf_torus':
             field = fx.isf_torus(origin, major, minor, normal)
+            extent = major + minor
         elif kind == 'isf_cone':
             theta = _positive(_custom(prim, 'theta', 0.5), 'pbvfx:theta')
             if theta >= math.pi / 2:
                 raise ValueError('pbvfx:theta must be less than pi/2 radians')
             field = fx.isf_cone(origin, normal, height, theta)
+            extent = height * (1.0 + math.tan(theta))
         elif kind == 'isf_box':
             exponent = int(_custom(prim, 'roundingExponent', 3))
             if exponent <= 0:
                 raise ValueError('pbvfx:roundingExponent must be positive')
             field = fx.isf_box(origin, radius, exponent)
+            extent = radius
         elif kind == 'isf_icosahedron':
             field = fx.isf_icosahedron(origin)
+            extent = math.pi * 1.8
         elif kind == 'isf_steiner_patch':
             field = fx.isf_steiner_patch(origin)
+            extent = 1.0
         elif kind == 'isf_ellipse':
             field = fx.isf_ellipse(origin, normal, major, minor)
+            extent = max(major, minor)
         else:
             field = fx.isf_cylinder(origin, normal, radius, height)
+            extent = radius + height / 2.0
         field = _world_to_local(field, matrix, unit_scale, prim.GetPath())
+        bounds_min, bounds_max = _transformed_bounds(matrix, extent, unit_scale)
     rgb = _display_color(prim)
-    return SceneObject(str(prim.GetPath()), kind, field, fx.Color(*rgb, 0), rgb, center, radius_world)
+    return SceneObject(str(prim.GetPath()), kind, field, fx.Color(*rgb, 0), rgb,
+                       center, radius_world, bounds_min, bounds_max)
 
 
 def get_mesh_object(prim, settings, volume_meters_per_unit=1.0):
     """Convert a USD Mesh prim into a colored grid-backed scalar field."""
-    from usd_mesh import mesh_prim_to_field
+    from usd_mesh import mesh_prim_to_field, mesh_world_bounds
     half_width = _positive(_custom(prim, 'meshHalfWidth', 3.0), 'pbvfx:meshHalfWidth')
     field = mesh_prim_to_field(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
     rgb = _display_color(prim)
-    return SceneObject(str(prim.GetPath()), 'mesh', field, fx.Color(*rgb, 0), rgb)
+    bounds_min, bounds_max = mesh_world_bounds(prim, volume_meters_per_unit)
+    return SceneObject(str(prim.GetPath()), 'mesh', field, fx.Color(*rgb, 0), rgb,
+                       bounds_min=bounds_min, bounds_max=bounds_max)
 
 
 def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
@@ -319,6 +345,8 @@ class Scene:
     sdf: object
     density: object
     color: object
+    bounds_min: tuple
+    bounds_max: tuple
 
     @property
     def camera(self): return self.camera_info.native
@@ -348,11 +376,8 @@ class Scene:
     def light_shadow_kappa(self): return _one(self.lights, 'light').kappa
 
     def render(self, filename):
-        if len(self.objects) != 1 or self.objects[0].kind != 'isf_sphere' or self.objects[0].rgb != (1, 1, 1):
-            raise ValueError('The existing renderer supports one white sphere; use scene.density and scene.color for general scenes')
-        fx.render_usd_sphere(self.objects[0].field, _fxvec(self.center), self.radius,
-            _fxvec(self.eye), _fxvec(self.view), _fxvec(self.up), self.horizontal_fov,
-            _fxvec(self.light_position), self.light_color, self.light_shadow_kappa, self.settings, str(filename))
+        fx.render_usd_scene(self.density, self.color, self.camera, self.lights,
+                            self.settings, _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename))
 
 
 def load_scene(filename, volume_meters_per_unit=1.0):
@@ -371,7 +396,10 @@ def load_scene(filename, volume_meters_per_unit=1.0):
         sdf = fx.union_fields(sdf, obj.field)
     density = fx.negate(fx.mask(sdf))
     color = fx.make_scene_color_field([obj.field for obj in objects], [obj.color for obj in objects])
-    return Scene(settings, camera, lights, objects, sdf, density, color)
+    padding = 3 * max(settings.density_voxel_size, settings.color_voxel_size, settings.shadow_voxel_size)
+    bounds_min = tuple(min(obj.bounds_min[i] for obj in objects) - padding for i in range(3))
+    bounds_max = tuple(max(obj.bounds_max[i] for obj in objects) + padding for i in range(3))
+    return Scene(settings, camera, lights, objects, sdf, density, color, bounds_min, bounds_max)
 
 
 def main(argv=None):

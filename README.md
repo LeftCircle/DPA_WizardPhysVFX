@@ -44,7 +44,7 @@ the starter kit code.
 
 ## Render a USD sphere
 
-The CPU renderer can load one `UsdGeomSphere`, one `UsdLuxSphereLight`, and
+The sphere example loads one `UsdGeomSphere`, one `UsdLuxSphereLight`, and
 one perspective `UsdGeomCamera` through `UsdRenderSettings`. See
 [`python/inputs/sphere.usda`](python/inputs/sphere.usda). Build this project
 with `PBVFX_BUILD_PYTHON=ON`, and make the OpenUSD Python bindings (`pxr`)
@@ -73,8 +73,8 @@ Grid bounds are derived from the sphere instead of `model_halfsize`;
 
 The sphere's transform must have uniform scale and no shear; the camera must
 be perspective with zero aperture offsets, square pixels and matching aperture
-and output aspect ratios. One render settings prim and one sphere light are
-required. The light is approximated as a point: its RGB contribution is
+and output aspect ratios. One render settings prim is required. Each USD sphere
+light is approximated as a point: its RGB contribution is
 `color * intensity * 2^exposure`; its USD area/radius and physical light units
 are not simulated. Normalized and color-temperature lights are rejected.
 Clipping distances are used along the ray, an approximation of USD camera clip
@@ -238,9 +238,23 @@ with `pbvfx:meshHalfWidth` (in voxels).
 
 A single `primvars:displayColor` value supplies each object's color; otherwise
 `pbvfx:color` or white is used. If fields overlap, the first object in stage
-traversal order supplies the color. The combined fields are available to a
-renderer; the existing `scene.render(...)` implementation remains limited to
-one white sphere and does not render the multi-object example yet.
+traversal order supplies the color. `scene.render(path)` stamps the combined density and color fields into OpenVDB
+grids, builds a shadow map for each light, and writes an image. Render bounds
+are derived from the world-space mesh points and conservative ISF bounds, with
+padding for the voxel sizes. The bounding volume can be inspected through
+`scene.bounds_min` and `scene.bounds_max`; ISF bounds account for all supported
+analytic shapes and affine transforms. Lights use the existing approximate
+point-light and deep-shadow-map model.
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python python/usd_sphere_scene.py \
+  python/inputs/isf_mesh_scene.usda --output outputs/isf_mesh_scene.exr
+```
+
+Mesh surfaces must be closed for meaningful inside/outside signs. Very small
+voxels and large scene bounds can require substantial memory and render time.
+Run the optional image test with `PBVFX_RUN_RENDER_TESTS=1`; it also needs the
+OpenImageIO Python bindings and NumPy.
 
 Run the new scene tests using the built module and OpenUSD:
 

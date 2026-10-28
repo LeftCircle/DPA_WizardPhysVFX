@@ -27,6 +27,9 @@ def Xform "World"
     {
         rel camera = </World/Camera>
         uniform int2 resolution = (960, 540)
+        custom float pbvfx:minStep = 0.03
+        custom float pbvfx:maxStep = 0.06
+        custom float pbvfx:shadowStep = 0.08
         custom float pbvfx:densityVoxelSize = 0.1
         custom float pbvfx:colorVoxelSize = 0.1
         custom float pbvfx:shadowVoxelSize = 0.2

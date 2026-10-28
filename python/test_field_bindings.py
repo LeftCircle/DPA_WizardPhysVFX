@@ -56,6 +56,14 @@ class FieldBindingsTests(unittest.TestCase):
         self.assertEqual(camera.view.z, -1)
         self.assertAlmostEqual(camera.fov, 40)
 
+    def test_general_renderer_rejects_invalid_bounds(self):
+        sphere = fx.isf_sphere(self.origin, 1)
+        density = fx.negate(fx.mask(sphere))
+        color = fx.make_scene_color_field([sphere], [fx.Color(1, 0, 0)])
+        with self.assertRaises(ValueError):
+            fx.render_usd_scene(density, color, fx.Camera(), [], fx.RenderSettings(),
+                                fx.Vector(1, 1, 1), fx.Vector(-1, -1, -1), 'unused.exr')
+
     def test_requested_interface_is_exposed(self):
         names = ('add', 'subtract', 'scale', 'translate', 'rotate', 'scale_fixed',
                  'translate_fixed', 'rotate_fixed', 'smoothstep', 'smoothstep_lerp',

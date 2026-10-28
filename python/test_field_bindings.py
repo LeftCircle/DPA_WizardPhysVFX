@@ -32,6 +32,30 @@ class FieldBindingsTests(unittest.TestCase):
         self.assertAlmostEqual(fx.smoothstep(0, 1, 0.5), 0.5)
         self.assertVectorAlmostEqual(fx.smoothstep_lerp(self.origin, self.point, 0.5), (0.5, 1, 1.5))
 
+    def test_affine_fields_scene_colors_and_native_components(self):
+        sphere = fx.isf_sphere(self.origin, 1)
+        moved = fx.affine_transform_field(sphere, fx.Vector(-3, 0, 0),
+            fx.Vector(1, 0, 0), fx.Vector(0, 1, 0), fx.Vector(0, 0, 1))
+        self.assertLess(moved.eval(fx.Vector(3, 0, 0)), 0)
+        self.assertGreater(moved.eval(self.origin), 0)
+        other = fx.isf_sphere(fx.Vector(-3, 0, 0), 1)
+        colors = fx.make_scene_color_field([moved, other], [fx.Color(1, 0, 0), fx.Color(0, 1, 0)])
+        red, green = colors.eval(fx.Vector(3, 0, 0)), colors.eval(fx.Vector(-3, 0, 0))
+        self.assertEqual((red.red, red.green, red.blue), (1, 0, 0))
+        self.assertEqual((green.red, green.green, green.blue), (0, 1, 0))
+        with self.assertRaises(ValueError):
+            fx.make_scene_color_field([moved], [])
+        light = fx.PointLight(fx.Color(1, 0.5, 0.25), fx.Vector(0, 1, 2), 0.7)
+        self.assertAlmostEqual(light.kappa, 0.7, places=5)
+        self.assertEqual(light.position.y, 1)
+        camera = fx.Camera()
+        camera.set_eye_view_up(fx.Vector(0, 0, 8), fx.Vector(0, 0, -1), fx.Vector(0, 1, 0))
+        camera.set_fov(40)
+        camera.set_aspect_ratio(2)
+        self.assertEqual(camera.eye.z, 8)
+        self.assertEqual(camera.view.z, -1)
+        self.assertAlmostEqual(camera.fov, 40)
+
     def test_requested_interface_is_exposed(self):
         names = ('add', 'subtract', 'scale', 'translate', 'rotate', 'scale_fixed',
                  'translate_fixed', 'rotate_fixed', 'smoothstep', 'smoothstep_lerp',

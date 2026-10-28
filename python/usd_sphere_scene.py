@@ -1,4 +1,4 @@
-"""Load a single-sphere USD scene and send it to the PBVFX CPU renderer."""
+"""Translate USD stages into PhysVFX settings, cameras, lights and fields."""
 import argparse
 import math
 from dataclasses import dataclass
@@ -28,17 +28,16 @@ def _length(v):
 
 
 def _basis(matrix, path, uniform=False):
-    """Return orthogonal world basis vectors and reject shear/degeneracy."""
     axes = [_vec(matrix.TransformDir(Gf.Vec3d(*axis))) for axis in
             ((1, 0, 0), (0, 1, 0), (0, 0, 1))]
     lengths = [_length(axis) for axis in axes]
     if not all(math.isfinite(x) and x > 1e-10 for x in lengths):
-        raise ValueError(f"{path}: singular or non-finite transform")
+        raise ValueError(f'{path}: singular or non-finite transform')
     if any(abs(_dot(axes[i], axes[j])) > 1e-5 * lengths[i] * lengths[j]
            for i in range(3) for j in range(i)):
-        raise ValueError(f"{path}: shear is not supported")
+        raise ValueError(f'{path}: shear is not supported')
     if uniform and max(lengths) - min(lengths) > 1e-5 * max(lengths):
-        raise ValueError(f"{path}: non-uniform scale is not supported for spheres")
+        raise ValueError(f'{path}: non-uniform scale is not supported for spheres')
     return [tuple(x / length for x in axis) for axis, length in zip(axes, lengths)], lengths
 
 
@@ -55,68 +54,46 @@ def _custom(prim, name, default):
         return default
     value = attr.Get()
     if value is None:
-        raise ValueError(f"{prim.GetPath()}: pbvfx:{name} has no value")
+        raise ValueError(f'{prim.GetPath()}: pbvfx:{name} has no value')
     return value
 
 
 def _one(items, description):
     items = list(items)
     if len(items) != 1:
-        raise ValueError(f"Expected exactly one {description}, found {len(items)}")
+        raise ValueError(f'Expected exactly one {description}, found {len(items)}')
     return items[0]
 
 
+def _unit_scale(stage, volume_meters_per_unit):
+    return _positive(UsdGeom.GetStageMetersPerUnit(stage), 'metersPerUnit') / _positive(
+        volume_meters_per_unit, 'volume_meters_per_unit')
+
+
+def _settings_prim(stage):
+    return _one((p for p in stage.Traverse() if p.IsA(UsdRender.Settings)), 'RenderSettings')
+
+
 @dataclass
-class SphereScene:
-    field: object
-    center: tuple
-    radius: float
+class CameraInfo:
+    native: object
     eye: tuple
     view: tuple
     up: tuple
     horizontal_fov: float
-    light_position: tuple
-    light_color: tuple
-    light_shadow_kappa: float
-    settings: object
-
-    def render(self, filename):
-        fx.render_usd_sphere(
-            self.field, _fxvec(self.center), self.radius,
-            _fxvec(self.eye), _fxvec(self.view), _fxvec(self.up), self.horizontal_fov,
-            _fxvec(self.light_position), self.light_color, self.light_shadow_kappa,
-            self.settings, str(filename))
+    near: float
+    far: float
 
 
-def load_scene(filename, volume_meters_per_unit=1.0):
-    """Load a single-sphere scene; renderer coordinates are meters by default."""
-    stage = Usd.Stage.Open(str(filename))
-    if not stage:
-        raise ValueError(f"Could not open USD stage: {filename}")
-    unit_scale = _positive(UsdGeom.GetStageMetersPerUnit(stage), 'metersPerUnit') / _positive(
-        volume_meters_per_unit, 'volume_meters_per_unit')
-    cache = UsdGeom.XformCache(Usd.TimeCode.Default())
-    prims = list(stage.Traverse())
-    for prim in prims:
-        if prim.IsA(UsdGeom.Gprim) and not prim.IsA(UsdGeom.Sphere):
-            raise ValueError(f"{prim.GetPath()}: only Sphere geometry is supported")
-    settings_prim = _one((p for p in prims if p.IsA(UsdRender.Settings)), 'RenderSettings')
-    settings_schema = UsdRender.Settings(settings_prim)
-    targets = settings_schema.GetCameraRel().GetTargets()
-    camera_path = _one(targets, 'camera relationship target')
-    camera_prim = stage.GetPrimAtPath(camera_path)
-    if not camera_prim or not camera_prim.IsA(UsdGeom.Camera):
-        raise ValueError(f"{camera_path}: camera relationship must target a Camera")
-    sphere_prim = _one((p for p in prims if p.IsA(UsdGeom.Sphere)), 'Sphere')
-    light_prim = _one((p for p in prims if p.IsA(UsdLux.SphereLight)), 'SphereLight')
-
-    sphere_matrix = cache.GetLocalToWorldTransform(sphere_prim)
-    _, lengths = _basis(sphere_matrix, sphere_prim.GetPath(), uniform=True)
-    center = _vec(sphere_matrix.ExtractTranslation(), unit_scale)
-    radius = _positive(UsdGeom.Sphere(sphere_prim).GetRadiusAttr().Get(), 'sphere radius') * lengths[0] * unit_scale
-    field = fx.sphere(_fxvec(center), radius)
-
-    camera = UsdGeom.Camera(camera_prim)
+def get_camera_info(stage, volume_meters_per_unit=1.0):
+    """Construct a camera and its clip distances from the settings' camera relationship."""
+    scale = _unit_scale(stage, volume_meters_per_unit)
+    settings = UsdRender.Settings(_settings_prim(stage))
+    path = _one(settings.GetCameraRel().GetTargets(), 'camera relationship target')
+    prim = stage.GetPrimAtPath(path)
+    if not prim or not prim.IsA(UsdGeom.Camera):
+        raise ValueError(f'{path}: camera relationship must target a Camera')
+    camera = UsdGeom.Camera(prim)
     if str(camera.GetProjectionAttr().Get()) != 'perspective':
         raise ValueError('Only perspective cameras are supported')
     for attr in (camera.GetHorizontalApertureOffsetAttr(), camera.GetVerticalApertureOffsetAttr()):
@@ -125,79 +102,288 @@ def load_scene(filename, volume_meters_per_unit=1.0):
     focal = _positive(camera.GetFocalLengthAttr().Get(), 'focal length')
     horizontal = _positive(camera.GetHorizontalApertureAttr().Get(), 'horizontal aperture')
     vertical = _positive(camera.GetVerticalApertureAttr().Get(), 'vertical aperture')
-    fov = math.degrees(2.0 * math.atan(horizontal / (2.0 * focal)))
-    camera_matrix = cache.GetLocalToWorldTransform(camera_prim)
-    basis, _ = _basis(camera_matrix, camera_prim.GetPath())
-    eye = _vec(camera_matrix.ExtractTranslation(), unit_scale)
-    up = basis[1]
-    view = tuple(-x for x in basis[2])
-
-    resolution = settings_schema.GetResolutionAttr().Get()
+    resolution = settings.GetResolutionAttr().Get()
     if not resolution or resolution[0] <= 0 or resolution[1] <= 0:
         raise ValueError('Render resolution must be positive')
-    width, height = int(resolution[0]), int(resolution[1])
-    pixel_aspect = float(settings_schema.GetPixelAspectRatioAttr().Get())
-    if not math.isclose(pixel_aspect, 1.0, rel_tol=1e-5):
+    if not math.isclose(float(settings.GetPixelAspectRatioAttr().Get()), 1.0, rel_tol=1e-5):
         raise ValueError('Only square pixels are supported')
-    if not math.isclose(horizontal / vertical, width / height, rel_tol=1e-4):
+    aspect = int(resolution[0]) / int(resolution[1])
+    if not math.isclose(horizontal / vertical, aspect, rel_tol=1e-4):
         raise ValueError('Camera aperture and image aspect ratios must match')
+    fov = math.degrees(2 * math.atan(horizontal / (2 * focal)))
+    matrix = UsdGeom.XformCache(Usd.TimeCode.Default()).GetLocalToWorldTransform(prim)
+    basis, _ = _basis(matrix, prim.GetPath())
+    eye, up = _vec(matrix.ExtractTranslation(), scale), basis[1]
+    view = tuple(-x for x in basis[2])
     near, far = camera.GetClippingRangeAttr().Get()
-    near = _positive(near, 'near clip', allow_zero=True) * unit_scale
-    far = _positive(far, 'far clip') * unit_scale
+    near = _positive(near, 'near clip', allow_zero=True) * scale
+    far = _positive(far, 'far clip') * scale
     if far <= near:
         raise ValueError('Far clip must be greater than near clip')
+    native = fx.Camera()
+    native.set_eye_view_up(_fxvec(eye), _fxvec(view), _fxvec(up))
+    native.set_fov(fov)
+    native.set_aspect_ratio(aspect)
+    return CameraInfo(native, eye, view, up, fov, near, far)
 
+
+def get_camera(stage, volume_meters_per_unit=1.0):
+    """Return a native fx.Camera from the stage."""
+    return get_camera_info(stage, volume_meters_per_unit).native
+
+
+def get_render_settings(stage, volume_meters_per_unit=1.0, camera_info=None):
+    """Build fx.RenderSettings from a stage and its render camera."""
+    scale = _unit_scale(stage, volume_meters_per_unit)
+    prim = _settings_prim(stage)
+    settings = UsdRender.Settings(prim)
+    camera = camera_info or get_camera_info(stage, volume_meters_per_unit)
+    width, height = settings.GetResolutionAttr().Get()
     rs = fx.RenderSettings()
-    rs.width, rs.height = width, height
-    rs.near_dist, rs.far_dist = near, far
-    # Defaults are specified in renderer units. Authored distance values are in stage units.
+    rs.width, rs.height = int(width), int(height)
+    rs.near_dist, rs.far_dist = camera.near, camera.far
     for name, attr in (('minStep', 'min_step'), ('maxStep', 'max_step'),
                        ('shadowStep', 'shadow_step'), ('densityVoxelSize', 'density_voxel_size'),
                        ('colorVoxelSize', 'color_voxel_size'), ('shadowVoxelSize', 'shadow_voxel_size')):
-        value = _custom(settings_prim, name, None)
+        value = _custom(prim, name, None)
         if value is not None:
-            setattr(rs, attr, _positive(value, 'pbvfx:' + name) * unit_scale)
-    rs.kappa = _positive(_custom(settings_prim, 'kappa', rs.kappa), 'pbvfx:kappa')
-    rs.shadow_kappa = _positive(_custom(settings_prim, 'shadowKappa', rs.shadow_kappa), 'pbvfx:shadowKappa', allow_zero=True)
+            setattr(rs, attr, _positive(value, 'pbvfx:' + name) * scale)
+    rs.kappa = _positive(_custom(prim, 'kappa', rs.kappa), 'pbvfx:kappa')
+    rs.shadow_kappa = _positive(_custom(prim, 'shadowKappa', rs.shadow_kappa), 'pbvfx:shadowKappa', allow_zero=True)
     if rs.max_step < rs.min_step:
         raise ValueError('pbvfx:maxStep must be at least pbvfx:minStep')
+    return rs
 
-    light_api = UsdLux.LightAPI(light_prim)
-    if light_api.GetNormalizeAttr().Get() or light_api.GetEnableColorTemperatureAttr().Get():
-        raise ValueError('Light normalization and color temperature are not supported')
-    color = _vec(light_api.GetColorAttr().Get())
-    if not all(math.isfinite(c) and c >= 0 for c in color):
-        raise ValueError('Light color must be finite and non-negative')
-    intensity = _positive(light_api.GetIntensityAttr().Get(), 'light intensity', allow_zero=True)
-    exposure = float(light_api.GetExposureAttr().Get())
-    if not math.isfinite(exposure):
-        raise ValueError('Light exposure must be finite')
-    try:
-        light_color = tuple(c * intensity * 2.0 ** exposure for c in color)
-    except OverflowError as exc:
-        raise ValueError('Light exposure is too large') from exc
-    if not all(math.isfinite(c) for c in light_color):
-        raise ValueError('Light color and intensity are too large')
-    light_matrix = cache.GetLocalToWorldTransform(light_prim)
-    light_position = _vec(light_matrix.ExtractTranslation(), unit_scale)
-    shadow_kappa = _positive(_custom(light_prim, 'shadowKappa', rs.shadow_kappa),
-                             'light pbvfx:shadowKappa', allow_zero=True)
-    return SphereScene(field, center, radius, eye, view, up, fov, light_position,
-                       light_color, shadow_kappa, rs)
+
+def get_lights(stage, settings=None, volume_meters_per_unit=1.0):
+    """Construct one fx.PointLight per USD SphereLight."""
+    scale = _unit_scale(stage, volume_meters_per_unit)
+    settings = settings or get_render_settings(stage, volume_meters_per_unit)
+    cache = UsdGeom.XformCache(Usd.TimeCode.Default())
+    lights = []
+    for prim in stage.Traverse():
+        if not prim.IsA(UsdLux.SphereLight):
+            continue
+        api = UsdLux.LightAPI(prim)
+        if api.GetNormalizeAttr().Get() or api.GetEnableColorTemperatureAttr().Get():
+            raise ValueError('Light normalization and color temperature are not supported')
+        color = _vec(api.GetColorAttr().Get())
+        if not all(c >= 0 for c in color):
+            raise ValueError('Light color must be finite and non-negative')
+        intensity = _positive(api.GetIntensityAttr().Get(), 'light intensity', allow_zero=True)
+        exposure = float(api.GetExposureAttr().Get())
+        if not math.isfinite(exposure):
+            raise ValueError('Light exposure must be finite')
+        try:
+            rgb = tuple(c * intensity * 2.0 ** exposure for c in color)
+        except OverflowError as exc:
+            raise ValueError('Light exposure is too large') from exc
+        if not all(math.isfinite(c) for c in rgb):
+            raise ValueError('Light color and intensity are too large')
+        pos = _vec(cache.GetLocalToWorldTransform(prim).ExtractTranslation(), scale)
+        kappa = _positive(_custom(prim, 'shadowKappa', settings.shadow_kappa),
+                          'light pbvfx:shadowKappa', allow_zero=True)
+        lights.append(fx.PointLight(fx.Color(*rgb, 0), _fxvec(pos), kappa))
+    return lights
+
+
+@dataclass
+class SceneObject:
+    path: str
+    kind: str
+    field: object
+    color: object
+    rgb: tuple
+    center: tuple = None
+    radius: float = None
+
+
+def _display_color(prim):
+    # Constant displayColor is also readable by common USD viewers.
+    attr = prim.GetAttribute('primvars:displayColor')
+    values = attr.Get() if attr else None
+    rgb = _vec(values[0]) if values is not None and len(values) == 1 else None
+    if values is not None and len(values) != 1:
+        raise ValueError(f'{prim.GetPath()}: only a single constant displayColor is supported')
+    if rgb is None:
+        rgb = _vec(_custom(prim, 'color', (1, 1, 1)))
+    if not all(x >= 0 for x in rgb):
+        raise ValueError(f'{prim.GetPath()}: color must be non-negative')
+    return rgb
+
+
+def _normal(prim):
+    v = _vec(_custom(prim, 'normal', (0, 1, 0)))
+    length = _length(v)
+    if length <= 1e-10:
+        raise ValueError(f'{prim.GetPath()}: normal must be nonzero')
+    return _fxvec(tuple(x / length for x in v))
+
+
+def _world_to_local(field, matrix, scale, path):
+    determinant = float(matrix.GetDeterminant())
+    if not math.isfinite(determinant) or abs(determinant) < 1e-12:
+        raise ValueError(f'{path}: singular or non-finite transform')
+    inverse = matrix.GetInverse()
+    origin = _vec(inverse.Transform(Gf.Vec3d(0, 0, 0)))
+    axes = []
+    for axis in ((1, 0, 0), (0, 1, 0), (0, 0, 1)):
+        p = _vec(inverse.Transform(Gf.Vec3d(*(x / scale for x in axis))))
+        axes.append(tuple(p[i] - origin[i] for i in range(3)))
+    return fx.affine_transform_field(field, _fxvec(origin), *(_fxvec(x) for x in axes))
+
+
+ISF_TYPES = ('isf_sphere', 'isf_torus', 'isf_cone', 'isf_box', 'isf_icosahedron',
+             'isf_steiner_patch', 'isf_ellipse', 'isf_cylinder')
+
+
+def get_isf_object(prim, cache, unit_scale):
+    """Convert a prim tagged with pbvfx:isf_type to an analytic field."""
+    kind = _custom(prim, 'isf_type', None)
+    if kind is None:
+        return None
+    kind = str(kind)
+    if kind not in ISF_TYPES:
+        raise ValueError(f'{prim.GetPath()}: unknown pbvfx:isf_type {kind!r}')
+    origin, normal = fx.Vector(0, 0, 0), _normal(prim)
+    radius = _positive(_custom(prim, 'radius', 1.0), 'pbvfx:radius')
+    major = _positive(_custom(prim, 'majorRadius', 1.0), 'pbvfx:majorRadius')
+    minor = _positive(_custom(prim, 'minorRadius', 0.4), 'pbvfx:minorRadius')
+    height = _positive(_custom(prim, 'height', 2.0), 'pbvfx:height')
+    matrix = cache.GetLocalToWorldTransform(prim)
+    center = radius_world = None
+    if kind == 'isf_sphere':
+        if prim.IsA(UsdGeom.Sphere) and not prim.GetAttribute('pbvfx:radius'):
+            radius = _positive(UsdGeom.Sphere(prim).GetRadiusAttr().Get(), 'sphere radius')
+        _, lengths = _basis(matrix, prim.GetPath(), uniform=True)
+        center = _vec(matrix.ExtractTranslation(), unit_scale)
+        radius_world = radius * lengths[0] * unit_scale
+        field = fx.isf_sphere(_fxvec(center), radius_world)
+    else:
+        if kind == 'isf_torus':
+            field = fx.isf_torus(origin, major, minor, normal)
+        elif kind == 'isf_cone':
+            theta = _positive(_custom(prim, 'theta', 0.5), 'pbvfx:theta')
+            if theta >= math.pi / 2:
+                raise ValueError('pbvfx:theta must be less than pi/2 radians')
+            field = fx.isf_cone(origin, normal, height, theta)
+        elif kind == 'isf_box':
+            exponent = int(_custom(prim, 'roundingExponent', 3))
+            if exponent <= 0:
+                raise ValueError('pbvfx:roundingExponent must be positive')
+            field = fx.isf_box(origin, radius, exponent)
+        elif kind == 'isf_icosahedron':
+            field = fx.isf_icosahedron(origin)
+        elif kind == 'isf_steiner_patch':
+            field = fx.isf_steiner_patch(origin)
+        elif kind == 'isf_ellipse':
+            field = fx.isf_ellipse(origin, normal, major, minor)
+        else:
+            field = fx.isf_cylinder(origin, normal, radius, height)
+        field = _world_to_local(field, matrix, unit_scale, prim.GetPath())
+    rgb = _display_color(prim)
+    return SceneObject(str(prim.GetPath()), kind, field, fx.Color(*rgb, 0), rgb, center, radius_world)
+
+
+def get_mesh_object(prim, settings, volume_meters_per_unit=1.0):
+    """Convert a USD Mesh prim into a colored grid-backed scalar field."""
+    from usd_mesh import mesh_prim_to_field
+    half_width = _positive(_custom(prim, 'meshHalfWidth', 3.0), 'pbvfx:meshHalfWidth')
+    field = mesh_prim_to_field(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
+    rgb = _display_color(prim)
+    return SceneObject(str(prim.GetPath()), 'mesh', field, fx.Color(*rgb, 0), rgb)
+
+
+def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
+    """Load tagged ISFs; untagged geometry is converted as a USD Mesh."""
+    scale = _unit_scale(stage, volume_meters_per_unit)
+    cache = UsdGeom.XformCache(Usd.TimeCode.Default())
+    objects = []
+    for prim in stage.Traverse():
+        item = get_isf_object(prim, cache, scale)
+        if item is not None:
+            objects.append(item)
+        elif prim.IsA(UsdGeom.Mesh):
+            objects.append(get_mesh_object(prim, settings, volume_meters_per_unit))
+        elif prim.IsA(UsdGeom.Gprim):
+            raise ValueError(f'{prim.GetPath()}: untagged geometry must be a USD Mesh')
+    return objects
+
+
+@dataclass
+class Scene:
+    settings: object
+    camera_info: CameraInfo
+    lights: list
+    objects: list
+    sdf: object
+    density: object
+    color: object
+
+    @property
+    def camera(self): return self.camera_info.native
+    @property
+    def eye(self): return self.camera_info.eye
+    @property
+    def view(self): return self.camera_info.view
+    @property
+    def up(self): return self.camera_info.up
+    @property
+    def horizontal_fov(self): return self.camera_info.horizontal_fov
+    @property
+    def field(self): return self.sdf
+    @property
+    def center(self): return self.objects[0].center if len(self.objects) == 1 else None
+    @property
+    def radius(self): return self.objects[0].radius if len(self.objects) == 1 else None
+    @property
+    def light_position(self):
+        light = _one(self.lights, 'light')
+        return (light.position.x, light.position.y, light.position.z)
+    @property
+    def light_color(self):
+        light = _one(self.lights, 'light')
+        return (light.color.red, light.color.green, light.color.blue)
+    @property
+    def light_shadow_kappa(self): return _one(self.lights, 'light').kappa
+
+    def render(self, filename):
+        if len(self.objects) != 1 or self.objects[0].kind != 'isf_sphere' or self.objects[0].rgb != (1, 1, 1):
+            raise ValueError('The existing renderer supports one white sphere; use scene.density and scene.color for general scenes')
+        fx.render_usd_sphere(self.objects[0].field, _fxvec(self.center), self.radius,
+            _fxvec(self.eye), _fxvec(self.view), _fxvec(self.up), self.horizontal_fov,
+            _fxvec(self.light_position), self.light_color, self.light_shadow_kappa, self.settings, str(filename))
+
+
+def load_scene(filename, volume_meters_per_unit=1.0):
+    """Return PhysVFX components and combined fields for a USD stage."""
+    stage = Usd.Stage.Open(str(filename))
+    if not stage:
+        raise ValueError(f'Could not open USD stage: {filename}')
+    camera = get_camera_info(stage, volume_meters_per_unit)
+    settings = get_render_settings(stage, volume_meters_per_unit, camera)
+    lights = get_lights(stage, settings, volume_meters_per_unit)
+    objects = get_scene_objects(stage, settings, volume_meters_per_unit)
+    if not objects:
+        raise ValueError('No tagged ISFs or USD meshes found')
+    sdf = objects[0].field
+    for obj in objects[1:]:
+        sdf = fx.union_fields(sdf, obj.field)
+    density = fx.negate(fx.mask(sdf))
+    color = fx.make_scene_color_field([obj.field for obj in objects], [obj.color for obj in objects])
+    return Scene(settings, camera, lights, objects, sdf, density, color)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scene', help='USD scene (.usd, .usda or .usdc)')
     parser.add_argument('--output', required=True, help='Output image path, e.g. sphere.exr')
-    parser.add_argument('--volume-meters-per-unit', type=float, default=1.0,
-                        help='Meters per renderer unit (default: 1)')
+    parser.add_argument('--volume-meters-per-unit', type=float, default=1.0)
     args = parser.parse_args(argv)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        scene = load_scene(args.scene, args.volume_meters_per_unit)
-        scene.render(output)
+        load_scene(args.scene, args.volume_meters_per_unit).render(output)
     except (ValueError, RuntimeError) as exc:
         parser.exit(1, f'error: {exc}\n')
     print(f'Wrote {output}')

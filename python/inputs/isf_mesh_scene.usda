@@ -1,0 +1,165 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "World"
+{
+    def Camera "Camera"
+    {
+        float focalLength = 28
+        float horizontalAperture = 20.955
+        float verticalAperture = 11.7871875
+        float2 clippingRange = (0.1, 60)
+        double3 xformOp:translate = (0, 0, 30)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def SphereLight "Light"
+    {
+        color3f inputs:color = (1, 1, 1)
+        float inputs:intensity = 4
+        double3 xformOp:translate = (0, 8, 15)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def RenderSettings "Settings"
+    {
+        rel camera = </World/Camera>
+        uniform int2 resolution = (960, 540)
+        custom float pbvfx:densityVoxelSize = 0.1
+        custom float pbvfx:colorVoxelSize = 0.1
+        custom float pbvfx:shadowVoxelSize = 0.2
+    }
+    def Sphere "Sphere"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+        double3 xformOp:translate = (-6, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "Torus"
+    {
+        custom token pbvfx:isf_type = "isf_torus"
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+        custom float pbvfx:majorRadius = 1.0
+        custom float pbvfx:minorRadius = 0.35
+        double3 xformOp:translate = (-2, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Cone "Cone"
+    {
+        custom token pbvfx:isf_type = "isf_cone"
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+        custom float pbvfx:height = 1.5
+        custom float pbvfx:theta = 0.55
+        double3 xformOp:translate = (2, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Cube "Box"
+    {
+        custom token pbvfx:isf_type = "isf_box"
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+        custom float pbvfx:radius = 1.0
+        custom int pbvfx:roundingExponent = 3
+        double3 xformOp:translate = (6, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "Icosahedron"
+    {
+        custom token pbvfx:isf_type = "isf_icosahedron"
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+        double3 xformOp:translate = (-6, -1, 0)
+        float3 xformOp:scale = (0.2, 0.2, 0.2)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+    def Sphere "SteinerPatch"
+    {
+        custom token pbvfx:isf_type = "isf_steiner_patch"
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+        double3 xformOp:translate = (-2, -1, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "Ellipse"
+    {
+        custom token pbvfx:isf_type = "isf_ellipse"
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+        custom float pbvfx:majorRadius = 1.2
+        custom float pbvfx:minorRadius = 0.7
+        double3 xformOp:translate = (2, -1, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Cylinder "Cylinder"
+    {
+        custom token pbvfx:isf_type = "isf_cylinder"
+        color3f[] primvars:displayColor = [(1, 0, 0)] (
+            interpolation = "constant"
+        )
+        custom float pbvfx:radius = 0.65
+        custom float pbvfx:height = 1.8
+        double3 xformOp:translate = (6, -1, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Mesh "CubeMesh"
+    {
+        uniform token subdivisionScheme = "none"
+        point3f[] points = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1), (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+        int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+        int[] faceVertexIndices = [0, 3, 2, 1, 4, 5, 6, 7, 0, 1, 5, 4, 1, 2, 6, 5, 2, 3, 7, 6, 3, 0, 4, 7]
+        color3f[] primvars:displayColor = [(0, 1, 0)] (
+            interpolation = "constant"
+        )
+        double3 xformOp:translate = (-6, -5, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Mesh "Tetrahedron"
+    {
+        uniform token subdivisionScheme = "none"
+        point3f[] points = [(-1, -1, -1), (1, -1, -1), (0, 1, -1), (0, 0, 1)]
+        int[] faceVertexCounts = [3, 3, 3, 3]
+        int[] faceVertexIndices = [0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3]
+        color3f[] primvars:displayColor = [(0, 1, 0)] (
+            interpolation = "constant"
+        )
+        double3 xformOp:translate = (-2, -5, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Mesh "Octahedron"
+    {
+        uniform token subdivisionScheme = "none"
+        point3f[] points = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
+        int[] faceVertexCounts = [3, 3, 3, 3, 3, 3, 3, 3]
+        int[] faceVertexIndices = [0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5]
+        color3f[] primvars:displayColor = [(0, 1, 0)] (
+            interpolation = "constant"
+        )
+        double3 xformOp:translate = (2, -5, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Mesh "TriangularPrism"
+    {
+        uniform token subdivisionScheme = "none"
+        point3f[] points = [(-1, -1, -1), (1, -1, -1), (0, 1, -1), (-1, -1, 1), (1, -1, 1), (0, 1, 1)]
+        int[] faceVertexCounts = [3, 3, 4, 4, 4]
+        int[] faceVertexIndices = [0, 2, 1, 3, 4, 5, 0, 1, 4, 3, 1, 2, 5, 4, 2, 0, 3, 5]
+        color3f[] primvars:displayColor = [(0, 1, 0)] (
+            interpolation = "constant"
+        )
+        double3 xformOp:translate = (6, -5, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}

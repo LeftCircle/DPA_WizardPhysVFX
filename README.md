@@ -197,3 +197,54 @@ Run the integration tests with the built module and OpenUSD available:
 PYTHONPATH="$PWD/build/python:$PWD/python" python -m unittest discover \
   -s python -p 'test_mesh_import.py' -v
 ```
+
+## General USD scene loading
+
+`python/usd_sphere_scene.py` exposes helpers that accept an open USD stage:
+`get_camera`, `get_render_settings`, `get_lights`, `get_isf_object`,
+`get_mesh_object`, and `get_scene_objects`. The first three construct native
+PhysVFX camera, settings, and point-light objects. `load_scene` combines those
+pieces and exposes the objects as well as scalar and color fields:
+
+```python
+from usd_sphere_scene import load_scene
+
+scene = load_scene("python/inputs/isf_mesh_scene.usda")
+settings = scene.settings                 # fx.RenderSettings
+camera = scene.camera                     # fx.Camera
+lights = scene.lights                     # list[fx.PointLight]
+objects = scene.objects                   # path, kind, field and color
+implicit_field = scene.sdf                # union of the object fields
+density = scene.density                   # negative inside, zero outside
+color = scene.color                       # fx.ColorField
+```
+
+The example contains each of the eight `isf_*` types as red tagged prims and
+four untagged green meshes. A prim selects an analytic field using a custom
+`token pbvfx:isf_type`, such as `"isf_sphere"` or `"isf_torus"`. An untagged
+geometry prim must be a USD `Mesh` and is voxelized using the density voxel
+size. Tagged meshes are interpreted as their ISF instead. Untagged non-mesh
+geometry and unknown ISF tags raise an error.
+
+Fields use local coordinates and the composed USD world transform. Tagged
+spheres currently require a uniform, shear-free world scale. Other ISFs
+preserve their zero surface and inside/outside sign under affine transforms;
+these fields and their union are not necessarily exact world-space distance
+fields. ISF parameters can be authored using `pbvfx:radius`, `majorRadius`,
+`minorRadius`, `height`, `normal`, `theta` (radians), and `roundingExponent`,
+where applicable. A sphere without a custom radius uses its USD Sphere radius.
+The example shows the accepted tags. Meshes can override the narrow-band width
+with `pbvfx:meshHalfWidth` (in voxels).
+
+A single `primvars:displayColor` value supplies each object's color; otherwise
+`pbvfx:color` or white is used. If fields overlap, the first object in stage
+traversal order supplies the color. The combined fields are available to a
+renderer; the existing `scene.render(...)` implementation remains limited to
+one white sphere and does not render the multi-object example yet.
+
+Run the new scene tests using the built module and OpenUSD:
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python -m unittest discover \
+  -s python -p 'test_usd_general_scene.py' -v
+```

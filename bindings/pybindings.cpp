@@ -16,6 +16,8 @@ ChatGPT mini
 #include "field_interface.h"
 #include "openvdb_helpers.h"
 #include "usd_sphere_render.h"
+#include "Camera.h"
+#include "lights.h"
 
 namespace py = pybind11;
 using namespace lux;
@@ -115,6 +117,23 @@ PYBIND11_MODULE(physics_vfx, module)
         .def_property_readonly("blue", &Color::blue)
         .def_property_readonly("alpha", &Color::alpha);
 
+    py::class_<PointLight>(module, "PointLight")
+        .def(py::init<Color, Vector, float>(), py::arg("color"), py::arg("position"), py::arg("kappa") = 1.0f)
+        .def_readwrite("color", &PointLight::color)
+        .def_readwrite("position", &PointLight::position)
+        .def_readwrite("kappa", &PointLight::kappa);
+
+    py::class_<Camera>(module, "Camera")
+        .def(py::init<>())
+        .def("set_eye_view_up", &Camera::setEyeViewUp)
+        .def("set_fov", &Camera::setFov)
+        .def("set_aspect_ratio", &Camera::setAspectRatio)
+        .def_property_readonly("eye", &Camera::eye)
+        .def_property_readonly("view", py::overload_cast<>(&Camera::view, py::const_))
+        .def_property_readonly("up", &Camera::up)
+        .def_property_readonly("fov", &Camera::fov)
+        .def_property_readonly("aspect_ratio", &Camera::aspectRatio);
+
     py::class_<Matrix>(module, "Matrix")
         .def(py::init<>())
         .def("get", [](const Matrix& m, int row, int col) {
@@ -128,6 +147,23 @@ PYBIND11_MODULE(physics_vfx, module)
     bind_field_operations<float>(module);
     bind_field_operations<Vector>(module);
     bind_field_operations<Color>(module);
+
+    module.def("affine_transform_field", [](const vspf& field, const Vector& origin,
+        const Vector& x_axis, const Vector& y_axis, const Vector& z_axis) {
+        if (!field) throw py::value_error("field cannot be null");
+        return funcfield<float>([field, origin, x_axis, y_axis, z_axis](const Vector& p) {
+            return field->eval(origin + p.X() * x_axis + p.Y() * y_axis + p.Z() * z_axis);
+        });
+    }, py::arg("field"), py::arg("origin"), py::arg("x_axis"), py::arg("y_axis"), py::arg("z_axis"));
+
+    module.def("make_scene_color_field", [](const std::vector<vspf>& fields, const std::vector<Color>& colors) {
+        if (fields.size() != colors.size()) throw py::value_error("one color is required for each field");
+        for (const auto& field : fields) if (!field) throw py::value_error("fields cannot be null");
+        return funcfield<Color>([fields, colors](const Vector& p) {
+            for (size_t i = 0; i < fields.size(); ++i) if (fields[i]->eval(p) < 0) return colors[i];
+            return Color(0, 0, 0, 0);
+        });
+    }, py::arg("fields"), py::arg("colors"));
 
     py::class_<FSVals>(module, "FSVals")
         .def(py::init<>())

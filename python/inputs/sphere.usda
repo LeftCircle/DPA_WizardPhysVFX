@@ -19,6 +19,7 @@ def Xform "World"
 
     def Sphere "Sphere"
     {
+        custom token pbvfx:isf_type = "isf_sphere"
         double radius = 1
         double3 xformOp:translate = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate"]
@@ -47,3 +48,4 @@ def Xform "World"
         custom float pbvfx:shadowVoxelSize = 0.1
     }
 }
+

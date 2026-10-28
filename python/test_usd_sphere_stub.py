@@ -20,13 +20,23 @@ class Matrix:
     def TransformDir(self, v):
         return (v[0] * self.scale[0] + v[1] * self.shear,
                 v[1] * self.scale[1], v[2] * self.scale[2])
+    def GetDeterminant(self): return math.prod(self.scale)
+    def GetInverse(self):
+        inverse = Matrix(tuple(-t / s for t, s in zip(self.translation, self.scale)),
+                         tuple(1 / s for s in self.scale))
+        return inverse
+    def Transform(self, v):
+        return tuple(a * b + t for a, b, t in zip(v, self.scale, self.translation))
 
 
 class Prim:
     def __init__(self, kind, path, values=None, matrix=None):
         self.kind, self.path = kind, path
         self.values, self.matrix = values or {}, matrix or Matrix()
-    def IsA(self, kind): return self.kind is kind
+    def IsA(self, kind):
+        if kind is object:
+            return self.kind in (Sphere, Mesh)
+        return self.kind is kind
     def GetPath(self): return self.path
     def GetAttribute(self, name):
         return Attr(self.values[name]) if name in self.values else None
@@ -47,6 +57,7 @@ class Sphere(Schema): pass
 class Camera(Schema): pass
 class Light(Schema): pass
 class Settings(Schema): pass
+class Mesh(Schema): pass
 
 
 class XformCache:
@@ -61,11 +72,29 @@ class SettingsObject:
         self.density_voxel_size = self.color_voxel_size = self.shadow_voxel_size = 0.025
 
 
+class FakeVector(tuple):
+    def __new__(cls, *v): return tuple.__new__(cls, v)
+    x = property(lambda self: self[0])
+    y = property(lambda self: self[1])
+    z = property(lambda self: self[2])
+
+
+class FakeColor:
+    def __init__(self, red, green, blue, alpha):
+        self.red, self.green, self.blue, self.alpha = red, green, blue, alpha
+
+
+class FakeCamera:
+    def set_eye_view_up(self, *args): pass
+    def set_fov(self, value): pass
+    def set_aspect_ratio(self, value): pass
+
+
 def fixture():
     camera = Prim(Camera, '/camera', dict(Projection='perspective', HorizontalApertureOffset=0,
         VerticalApertureOffset=0, FocalLength=50, HorizontalAperture=20,
         VerticalAperture=10, ClippingRange=(0.1, 100)), Matrix((0, 0, 8)))
-    sphere = Prim(Sphere, '/sphere', dict(Radius=2), Matrix((4, 2, -1), (2, 2, 2)))
+    sphere = Prim(Sphere, '/sphere', dict(Radius=2, **{'pbvfx:isf_type': 'isf_sphere'}), Matrix((4, 2, -1), (2, 2, 2)))
     light = Prim(Light, '/light', dict(Normalize=False, EnableColorTemperature=False,
         Color=(0.5, 1, 0.25), Intensity=2, Exposure=1,
         **{'pbvfx:shadowKappa': 0.7}), Matrix((3, 4, 5)))
@@ -76,15 +105,26 @@ def fixture():
                             GetPrimAtPath=lambda path: next((p for p in prims if p.path == path), None))
     calls = []
     fx = ModuleType('physics_vfx')
-    fx.Vector = lambda *v: tuple(v)
+    fx.Vector = FakeVector
+    fx.Color = FakeColor
+    fx.Camera = FakeCamera
+    fx.PointLight = lambda color, position, kappa: SimpleNamespace(color=color, position=position, kappa=kappa)
     fx.sphere = lambda center, radius: ('sphere', center, radius)
+    fx.isf_sphere = fx.sphere
+    fx.mask = lambda field: ('mask', field)
+    fx.negate = lambda field: ('negate', field)
+    fx.make_scene_color_field = lambda fields, colors: ('color', fields, colors)
+    fx.union_fields = lambda a, b: ('union', a, b)
+    for name in ('isf_torus', 'isf_cone', 'isf_box', 'isf_icosahedron', 'isf_steiner_patch', 'isf_ellipse', 'isf_cylinder'):
+        setattr(fx, name, lambda *args, name=name: (name, args))
+    fx.affine_transform_field = lambda field, origin, x, y, z: ('transformed', field, origin, x, y, z)
     fx.RenderSettings = SettingsObject
     fx.render_usd_sphere = lambda *args: calls.append(args)
     pxr = ModuleType('pxr')
     pxr.Gf = SimpleNamespace(Vec3d=lambda *v: v)
     pxr.Usd = SimpleNamespace(Stage=SimpleNamespace(Open=lambda _: stage),
                               TimeCode=SimpleNamespace(Default=lambda: None))
-    pxr.UsdGeom = SimpleNamespace(Sphere=Sphere, Camera=Camera, Gprim=object, XformCache=XformCache,
+    pxr.UsdGeom = SimpleNamespace(Sphere=Sphere, Camera=Camera, Mesh=Mesh, Gprim=object, XformCache=XformCache,
                                   GetStageMetersPerUnit=lambda _: 0.5)
     pxr.UsdLux = SimpleNamespace(SphereLight=Light, LightAPI=Light)
     pxr.UsdRender = SimpleNamespace(Settings=Settings)
@@ -139,5 +179,39 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(scene.view, (-1, 0, 0))
         self.assertEqual(scene.up, (0, 1, 0))
 
+    def test_general_scene_dispatch_and_colors(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        sphere.values['primvars:displayColor'] = [(1, 0, 0)]
+        tagged = [Prim(Sphere, '/isf/' + kind, {'pbvfx:isf_type': kind,
+                  'primvars:displayColor': [(1, 0, 0)]}, Matrix((i, 0, 0)))
+                  for i, kind in enumerate(module.ISF_TYPES[1:], 1)]
+        meshes = [Prim(Mesh, '/mesh/' + str(i), {'primvars:displayColor': [(0, 1, 0)]}) for i in range(4)]
+        stage.Traverse = lambda: original + tagged + meshes
+        fake_mesh = ModuleType('usd_mesh')
+        fake_mesh.mesh_prim_to_field = lambda prim, voxel, half_width, unit: ('mesh', prim.path)
+        with patch.dict(sys.modules, {'usd_mesh': fake_mesh}):
+            scene = module.load_scene('scene')
+        self.assertEqual(len(scene.objects), 12)
+        self.assertEqual({o.kind for o in scene.objects[:8]}, set(module.ISF_TYPES))
+        self.assertTrue(all(o.rgb == (1, 0, 0) for o in scene.objects[:8]))
+        self.assertTrue(all(o.kind == 'mesh' and o.rgb == (0, 1, 0) for o in scene.objects[8:]))
+        self.assertEqual(scene.objects[1].field[0], 'transformed')
+        self.assertEqual(scene.objects[1].field[2], (-1, 0, 0))
+        self.assertEqual(len(scene.lights), 1)
+        self.assertEqual(scene.density[0], 'negate')
+        self.assertEqual(scene.color[0], 'color')
+
+    def test_unknown_tags_and_untagged_primitives_are_rejected(self):
+        module, sphere, _, _, _, _ = fixture()
+        sphere.values['pbvfx:isf_type'] = 'not_a_type'
+        with self.assertRaisesRegex(ValueError, 'unknown pbvfx:isf_type'):
+            module.load_scene('scene')
+        del sphere.values['pbvfx:isf_type']
+        with self.assertRaisesRegex(ValueError, 'untagged geometry must be a USD Mesh'):
+            module.load_scene('scene')
+
 
 if __name__ == '__main__': unittest.main()
+

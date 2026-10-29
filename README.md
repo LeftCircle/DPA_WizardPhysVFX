@@ -1,38 +1,75 @@
-# Hw 2: Wisps
+# Physics-Based VFX: Volume Rendering and Fields
 
-Videos for wisps, pyro, and noise are in 
-images/wisps -> wisps
-images/pyro_wedges -> pyro
-images/wedges -> noise
+A C++ and CUDA project for building, manipulating, and rendering volumetric
+fields. It combines analytic implicit surfaces, procedural noise and wisps,
+OpenVDB grids, and a ray-marching renderer. Python bindings and USD scene
+loading provide another way to assemble and render scenes.
 
-look for .mov files for the videos!
+## Connections to volume rendering research
 
-noise parameters:
+The following parts of the code are relevant to the volume rendering internship
+posting. They demonstrate related implementation work and provide a starting
+point for further research; they do not by themselves establish experience
+with a production renderer or artist collaboration.
+
+| Job topic | Relevant project work | Where to look |
+| --- | --- | --- |
+| Physically based volume rendering | CPU ray marching accumulates color and exponential transmittance through a density field, with point lights and deep shadow maps. A separate CUDA ray marcher implements a related GPU path. | [`src/ray_marcher.cpp`](src/ray_marcher.cpp), [`src/deep_shadow_map.cpp`](src/deep_shadow_map.cpp), [`src/cuda/ray_marcher_cuda.cu`](src/cuda/ray_marcher_cuda.cu) |
+| Rendering efficiency and thin-volume sampling | Randomized ray and shadow stepping, sparse OpenVDB grids, and a CUDA implementation offer places to study sampling cost, resolution and quality. The current renderer uses ray marching; it does not implement delta tracking or path guiding. | [`src/ray_marcher.cpp`](src/ray_marcher.cpp), [`include/deep_shadow_map.h`](include/deep_shadow_map.h), [`src/openvdb_helpers.cpp`](src/openvdb_helpers.cpp) |
+| Volume appearance and procedural looks | Noise fields, fractal sums, and wisp construction provide controls for shaping volumetric detail and exploring pyro and wisp looks. | [`include/noise_fields.h`](include/noise_fields.h), [`include/fractal_sum_noise.h`](include/fractal_sum_noise.h), [`include/wisps.h`](include/wisps.h) |
+| Surface and volume representations | Analytic implicit surfaces and converted OBJ/USD meshes can be represented as scalar fields and used to construct volume densities. This is a useful basis for exploring surface/volume relationships, not a unified surface, subsurface, and volume transport model. | [`include/implicit_fields.h`](include/implicit_fields.h), [`include/field_interface.h`](include/field_interface.h), [`python/usd_mesh.py`](python/usd_mesh.py) |
+| User-facing scene workflows | USD defines camera, lights, geometry, colors and renderer controls; Python helpers turn those into renderer components. The included scene combines analytic fields with meshes. | [`python/usd_sphere_scene.py`](python/usd_sphere_scene.py), [`python/inputs/isf_mesh_scene.usda`](python/inputs/isf_mesh_scene.usda), [`bindings/pybindings.cpp`](bindings/pybindings.cpp) |
+| Modern C++ and mathematical foundations | Templated field operations, vector and matrix transforms, implicit functions, stochastic sampling, and numerical integration connect C++ implementation with calculus, linear algebra, and probability. | [`include/volume.h`](include/volume.h), [`include/field_operations.h`](include/field_operations.h), [`include/implicit_fields.h`](include/implicit_fields.h) |
+| Verification and debugging | Catch2 tests and Python tests cover field behavior, scene loading, image output and module import. | [`tests/`](tests/), [`python/`](python/), [`CMakeLists.txt`](CMakeLists.txt) |
+
+Potential next steps aligned with the posting include profiling thin volumes,
+evaluating delta tracking and path guiding, comparing alternative sampling
+strategies, and researching consistent surface/subsurface/volume transport.
+These are research directions, not features currently claimed by this project.
+The USD interface is a workflow foundation; production suitability and artist
+usability would need evaluation with artists and technical directors.
+
+## Procedural look development
+
+Earlier wisp, pyro, and noise experiments used parameter wedges. Their videos
+were referenced under `images/wisps`, `images/pyro_wedges`, and
+`images/wedges`; those media files are not included in the repository.
+The original parameter ranges and defaults are retained below.
+
+Noise parameters:
+```cpp
 std::vector<float> mins = {1, 0.01, 0.00, 0.01, 1e-6};
 std::vector<float> maxes = {8, 4, 1, 5, 3};
 std::vector<float> defaults = {2.5, 1.5, 0.5, 2, 0};
 std::vector<InterpFunc> interps = {lerp, lerp, lerp, lerp, lerp};
 std::vector<std::string> names = {"octave", "fade", "roughness", "freq", "fjump"};
 
-pyro parameters:
+```
+
+Pyro parameters:
+```cpp
 std::vector<float> mins = {1, 0.01, 0.01, 1e-6, 0.01};
 std::vector<float> maxes = {8, 5, 5, 5, 5};
 std::vector<float> defaults = {3, 1, 2, 2, 2};
 std::vector<InterpFunc> interps = {lerp, lerp, lerp, lerp, lerp};
 std::vector<std::string> names = {"octave", "gamma", "freq", "fjump", "amp"};
 
-wisp parameters: (for wisp_out_v02.mov)
+```
+
+Wisp parameters (for `wisp_out_v02.mov`):
+```cpp
 std::vector<float> mins = {0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.1, 0.1};
 std::vector<float> maxes = {10, 10, 10, 10, 5, 5, 5, 5, 5, 1, 1};
 std::vector<float> defaults = {0.75, 1, 3, 5, 2, 1, 2, 1.5, 1, 0.1, 0.2};
 std::vector<InterpFunc> interps = {lerp, lerp, lerp, lerp, lerp, lerp, lerp, lerp, lerp, lerp, lerp};
 std::vector<std::string> names = {"clump", "pscale", "o1", "o2", "f1" "f2", "fj1", "fj2", "dips", "rough1", "rough2"};
 
+```
 
-Most of the code is in in the /include and /src folders.
+Most of the code is in the `include/` and `src/` folders.
 
 
-### Some extra info
+## Build dependencies
 The project is built with cmake, hence the build folder and all that goes with it. The third_party folder
 currently contains the code for the image processing library from Computer Graphics Images, along with 
 the starter kit code. 

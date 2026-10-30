@@ -2,6 +2,7 @@
 import math
 
 PREVIEW_CHILD = '__physvfx_bounds'
+SURFACE_CHILD = '__physvfx_surface'
 
 
 def _cube(extent):
@@ -69,9 +70,16 @@ def author_preview(stage, prim, kind, values):
         marker = proxy.GetAttribute('pbvfx:preview')
         if not marker or marker.Get() is not True or not proxy.IsA(UsdGeom.BasisCurves):
             raise ValueError(f'{path}: reserved preview path is already in use')
+    surface_path = str(prim.GetPath()) + '/' + SURFACE_CHILD
+    surface = stage.GetPrimAtPath(surface_path)
+    if surface:
+        marker = surface.GetAttribute('pbvfx:preview')
+        if not marker or marker.Get() is not True or not surface.IsA(UsdGeom.Mesh):
+            raise ValueError(f'{surface_path}: reserved preview path is already in use')
     if not values.get('show_preview', True):
-        if proxy:
-            UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
+        for part in (proxy, surface):
+            if part:
+                UsdGeom.Imageable(part).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
         return
     lo, hi = local_bounds(prim, kind, values)
     if not all(math.isfinite(x) for x in (*lo, *hi)):
@@ -101,3 +109,31 @@ def author_preview(stage, prim, kind, values):
         'displayColor', Sdf.ValueTypeNames.Color3fArray, UsdGeom.Tokens.constant
     ).Set([Gf.Vec3f(1.0, 0.65, 0.1)])
     UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)
+    from .preview_surface import ISF_KINDS, polygonize
+    # A native USD sphere already provides an exact viewport surface unless
+    # PhysVFX's radius override differs from the native sphere radius.
+    native_sphere = kind == 'isf_sphere' and prim.IsA(UsdGeom.Sphere) and not values['override_radius']
+    if kind not in ISF_KINDS or native_sphere:
+        if surface:
+            UsdGeom.Imageable(surface).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
+        return
+    triangles = polygonize(kind, values, float(hi[0]), max(abs(x) for x in (*lo, *hi)))
+    if not surface:
+        surface = stage.DefinePrim(surface_path, 'Mesh')
+    if not surface:
+        raise ValueError(f'{surface_path}: could not create preview surface')
+    surface.CreateAttribute('pbvfx:preview', Sdf.ValueTypeNames.Bool, custom=True).Set(True)
+    mesh = UsdGeom.Mesh(surface)
+    mesh.CreatePointsAttr().Set([Gf.Vec3f(*p) for p in triangles])
+    mesh.CreateFaceVertexCountsAttr().Set([3] * (len(triangles)//3))
+    mesh.CreateFaceVertexIndicesAttr().Set(list(range(len(triangles))))
+    mesh.CreateSubdivisionSchemeAttr().Set('none')
+    mesh.CreateDoubleSidedAttr().Set(True)
+    if triangles:
+        mesh.CreateExtentAttr().Set([
+            Gf.Vec3f(*(min(p[i] for p in triangles) for i in range(3))),
+            Gf.Vec3f(*(max(p[i] for p in triangles) for i in range(3)))])
+    UsdGeom.PrimvarsAPI(surface).CreatePrimvar(
+        'displayColor', Sdf.ValueTypeNames.Color3fArray, UsdGeom.Tokens.constant
+    ).Set([Gf.Vec3f(0.2, 0.7, 1.0)])
+    UsdGeom.Imageable(surface).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)

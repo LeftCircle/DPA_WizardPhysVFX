@@ -50,6 +50,16 @@ class RealUSDTests(unittest.TestCase):
                              ['/World/A', '/World/B'])
             self.assertEqual(composed.GetPrimAtPath('/World/Settings').GetAttribute('pbvfx:minStep').GetTypeName(), Sdf.ValueTypeNames.Float)
 
+    def test_torus_has_tagged_surface_preview(self):
+        stage = Usd.Stage.CreateInMemory()
+        v = defaults('field'); v.update(kind='isf_torus', path='/World/Torus')
+        author(stage, 'field', v)
+        surface = stage.GetPrimAtPath('/World/Torus/__physvfx_surface')
+        self.assertTrue(surface.IsA(UsdGeom.Mesh))
+        self.assertTrue(surface.GetAttribute('pbvfx:preview').Get())
+        self.assertGreater(len(surface.GetAttribute('points').Get()), 0)
+        self.assertEqual(surface.GetAttribute('subdivisionScheme').Get(), 'none')
+
     def test_wisp_and_other_field_attributes_use_real_usd_types(self):
         stage = Usd.Stage.CreateInMemory()
         v = defaults('field'); v.update(kind='wisp', path='/World/Wisp', cache_name='wisp_01')

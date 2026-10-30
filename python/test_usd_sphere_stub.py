@@ -436,7 +436,8 @@ class TranslationTests(unittest.TestCase):
         # An untagged Mesh is otherwise imported, making this a regression test
         # for viewport proxies accidentally becoming renderable geometry.
         proxy = Prim(Mesh, '/sphere/__physvfx_bounds', {'pbvfx:preview': True})
-        stage.Traverse = lambda: original + [proxy]
+        surface = Prim(Mesh, '/sphere/__physvfx_surface', {'pbvfx:preview': True})
+        stage.Traverse = lambda: original + [proxy, surface]
         scene = module.load_scene('scene')
         self.assertEqual(len(scene.objects), 1)
         self.assertEqual(scene.objects[0].path, '/sphere')

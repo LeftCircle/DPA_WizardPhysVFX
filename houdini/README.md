@@ -135,12 +135,16 @@ the exception: an empty name is explicitly authored to disable an upstream key.
   display color is separate from material shading.
 - Houdini's viewport does not execute the PhysVFX volume renderer. Each Field
   node creates a visible orange wireframe bounds proxy beneath its field prim at
-  `__physvfx_bounds`; the renderer ignores this geometry via its
-  `pbvfx:preview` tag. It is an approximate bounding box, not the final surface
-  or volume. Existing USD meshes and spheres also remain visible. Use **Show
-  Bounds Preview** to hide the box. Existing nodes made with older versions
-  use the preview defaults after restarting Houdini; create a new Field node
-  if you want the new controls on its parameter interface.
+  `__physvfx_bounds`. Analytic ISFs also have a low-resolution surface proxy
+  at `__physvfx_surface` (a native USD sphere supplies its own surface when
+  its radius is not overridden). The surface uses the ISF's parameters and
+  local normal, and both proxies follow the prim's transform. They are layout
+  approximations, not the final render; fine or thin details may be missed.
+  The renderer ignores both via their `pbvfx:preview` tag. Existing USD meshes
+  also remain visible. **Show Bounds Preview** controls both proxies. Existing
+  nodes made with older versions use the preview defaults after restarting
+  Houdini; create a new Field node if you want the new controls on its parameter
+  interface.
 - Wisp bounds are estimated before stamping; **Wisp Preview Half Size** can
   override the estimate in local units. Actual wisp render bounds come from
   the stamped grid. Plane bounds are authored in world coordinates: apply its
@@ -148,7 +152,7 @@ the exception: an empty name is explicitly authored to disable an upstream key.
   bounds. Other fields' wireframe boxes follow their parent transforms.
 - Operation Xforms do not yet display the resulting CSG or pyro field. The
   source fields' bounds can be used to lay out the operation. Other USD
-  renderers may display the preview curves; `pbvfx:preview` is interpreted by
+  renderers may display the preview geometry; `pbvfx:preview` is interpreted by
   PhysVFX's scene loader, not a standard USD rendering exclusion.
 - PhysVFX-only object types must have compatible tags: an operation gets its
   own Xform, separate from its source fields. Existing USD prims are not

@@ -145,6 +145,10 @@ class AuthoringContractTests(unittest.TestCase):
         v = defaults('field'); v.update(kind='isf_torus', path='/World/Torus', majorRadius=2.0, minorRadius=0.5)
         prim = author(self.stage, 'field', v)
         proxy = self.stage.GetPrimAtPath('/World/Torus/__physvfx_bounds')
+        surface = self.stage.GetPrimAtPath('/World/Torus/__physvfx_surface')
+        self.assertEqual(surface.type_name, 'Mesh')
+        self.assertTrue(surface.attrs['pbvfx:preview'].value)
+        self.assertGreater(len(surface.attrs['Points'].value), 0)
         self.assertEqual(proxy.type_name, 'BasisCurves')
         self.assertTrue(proxy.attrs['pbvfx:preview'].value)
         points = proxy.attrs['Points'].value
@@ -157,7 +161,23 @@ class AuthoringContractTests(unittest.TestCase):
         v['show_preview'] = False
         author(self.stage, 'field', v)
         self.assertEqual(proxy.attrs['Visibility'].value, 'invisible')
+        self.assertEqual(surface.attrs['Visibility'].value, 'invisible')
         self.assertEqual(prim.attrs['pbvfx:isf_type'].value, 'isf_torus')
+
+    def test_torus_surface_tracks_authored_axis(self):
+        v = defaults('field'); v.update(kind='isf_torus', path='/World/T', majorRadius=2.0, minorRadius=0.5)
+        author(self.stage, 'field', v)
+        surface = self.stage.GetPrimAtPath('/World/T/__physvfx_surface')
+        points = surface.attrs['Points'].value
+        extent = [max(abs(p[i]) for p in points) for i in range(3)]
+        self.assertGreater(extent[0], 2.2)
+        self.assertLess(extent[1], 0.65)
+        v['normal'] = (1.0, 0.0, 0.0)
+        author(self.stage, 'field', v)
+        points = surface.attrs['Points'].value
+        extent = [max(abs(p[i]) for p in points) for i in range(3)]
+        self.assertLess(extent[0], 0.65)
+        self.assertGreater(extent[1], 2.2)
 
     def test_reserved_preview_path_is_not_overwritten(self):
         self.stage.DefinePrim('/World/Thing/__physvfx_bounds', 'Mesh')

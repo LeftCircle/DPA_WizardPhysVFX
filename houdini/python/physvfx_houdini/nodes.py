@@ -31,6 +31,7 @@ def _template(hou, spec):
         kwargs = {'default_value': spec.default, 'help': help_text}
         if spec.kind == 'color':
             kwargs['look'] = hou.parmLook.ColorSquare
+            kwargs['naming_scheme'] = hou.parmNamingScheme.RGBA
         return hou.FloatParmTemplate(name, spec.label, len(spec.default), **kwargs)
     if spec.kind == 'float':
         return hou.FloatParmTemplate(name, spec.label, 1, default_value=(spec.default,), help=help_text)

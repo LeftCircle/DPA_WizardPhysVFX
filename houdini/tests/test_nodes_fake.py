@@ -53,6 +53,8 @@ class Node:
         self.groups = group
         for folder in group.folders:
             for spec in folder.kwargs['parm_templates']:
+                if spec.kwargs.get('look') == 'color' and spec.kwargs.get('naming_scheme') != 'rgba':
+                    raise RuntimeError('ColorSquares must use an RGBA naming scheme')
                 default = spec.kwargs.get('default_value')
                 if isinstance(default, tuple) and len(default) > 1:
                     self.tuples[spec._name] = ParmTuple(default)
@@ -86,6 +88,7 @@ def make_hou():
     hou.OperationFailed = type('OperationFailed', (Exception,), {})
     hou.NodeError = type('NodeError', (Exception,), {})
     hou.parmLook = types.SimpleNamespace(ColorSquare='color')
+    hou.parmNamingScheme = types.SimpleNamespace(RGBA='rgba')
     for name in ('StringParmTemplate', 'IntParmTemplate', 'ToggleParmTemplate', 'FloatParmTemplate'):
         setattr(hou, name, Template)
     hou.FolderParmTemplate = Folder

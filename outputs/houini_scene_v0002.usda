@@ -1,0 +1,13 @@
+#usda 1.0
+(
+    endTimeCode = 1
+    framesPerSecond = 24
+    metersPerUnit = 1
+    startTimeCode = 1
+    subLayers = [
+        @../../../../houdini_projects/physvfx/usd/sopcreate1.usd@
+    ]
+    timeCodesPerSecond = 24
+    upAxis = "Y"
+)
+

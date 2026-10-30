@@ -119,7 +119,7 @@ vspf make_pyro(
     auto fspn = make_fspn(r, octaves, translation, freq, fjump);
     auto iter_npt = make_iteratedNPT(f, iters);
     auto fspn_of_iternpt = make_warp_field(fspn, iter_npt);
-    return f + pow(abs(fspn_of_iternpt), gamma) * make_constant<float>(amp);
+    return f + pow(abs(fspn_of_iternpt), gamma) * make_constant<float>(-amp);
 }
 
 

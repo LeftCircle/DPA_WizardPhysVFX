@@ -20,7 +20,7 @@ const IntersectionField::volumeDataType IntersectionField::eval(const Vector& p)
 }
 
 const IntersectionField::volumeGradType IntersectionField::grad(const Vector& p) const { 
-    if (this->_a->eval(p) < std::get<0>(this->_values)->eval(p)){
+    if (this->_a->eval(p) > std::get<0>(this->_values)->eval(p)){
         return this->_a->grad(p);
     } else{
         return std::get<0>(this->_values)->grad(p);

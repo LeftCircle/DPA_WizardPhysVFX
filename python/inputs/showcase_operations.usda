@@ -1,0 +1,58 @@
+#usda 1.0
+(
+    subLayers = [@showcase_layout.usda@]
+)
+
+over "World"
+{
+    def Xform "UnionResult"
+    {
+        custom token pbvfx:operation = "union"
+        custom rel pbvfx:inputs = [</World/UnionA>, </World/UnionB>]
+    }
+    def Xform "IntersectResult"
+    {
+        custom token pbvfx:operation = "intersection"
+        custom rel pbvfx:inputs = [</World/IntersectA>, </World/IntersectB>]
+    }
+    def Xform "CutResult"
+    {
+        custom token pbvfx:operation = "cutout"
+        custom rel pbvfx:inputs = [</World/CutA>, </World/CutB>]
+    }
+    def Xform "AddResult"
+    {
+        custom token pbvfx:operation = "add"
+        custom rel pbvfx:inputs = [</World/AddA>, </World/AddB>]
+        custom point3f pbvfx:boundsMin = (4.4, 1.7, -1.3)
+        custom point3f pbvfx:boundsMax = (7.6, 4.3, 1.3)
+    }
+    def Xform "SubtractResult"
+    {
+        custom token pbvfx:operation = "subtract"
+        custom rel pbvfx:inputs = [</World/SubtractA>, </World/SubtractB>]
+        custom point3f pbvfx:boundsMin = (-7.6, -2.3, -1.3)
+        custom point3f pbvfx:boundsMax = (-4.4, 0.30000000000000004, 1.3)
+    }
+    def Xform "PyroResult"
+    {
+        custom token pbvfx:operation = "pyro"
+        custom rel pbvfx:inputs = </World/PyroSource>
+        custom float pbvfx:amplitude = 0.45
+        custom float pbvfx:frequency = 1.5
+        custom float pbvfx:frequencyJump = 2
+    }
+    def Xform "NoisyPlane"
+    {
+        custom token pbvfx:operation = "noise_warp"
+        custom rel pbvfx:inputs = </World/PlaneSource>
+        custom float3 pbvfx:normal = (0, 1, 0)
+        custom float pbvfx:amplitude = 0.6
+        custom float pbvfx:roughness = 0.5
+        custom float pbvfx:octaves = 3
+        custom float pbvfx:frequency = 0.8
+        custom float pbvfx:frequencyJump = 2
+        custom point3f pbvfx:boundsMin = (-10, -5.5, -2)
+        custom point3f pbvfx:boundsMax = (10, -3.5, 2)
+    }
+}

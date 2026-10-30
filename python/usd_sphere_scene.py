@@ -322,6 +322,37 @@ def get_mesh_object(prim, settings, volume_meters_per_unit=1.0):
                        bounds_min=bounds_min, bounds_max=bounds_max)
 
 
+def _bounds(prim, scale):
+    lo, hi = _custom(prim, 'boundsMin', None), _custom(prim, 'boundsMax', None)
+    if lo is None or hi is None:
+        raise ValueError(f'{prim.GetPath()}: explicit pbvfx:boundsMin and pbvfx:boundsMax are required')
+    lo, hi = _vec(lo, scale), _vec(hi, scale)
+    if any(a >= b for a, b in zip(lo, hi)):
+        raise ValueError(f'{prim.GetPath()}: invalid operation bounds')
+    return lo, hi
+
+
+def _clip_field(field, lo, hi):
+    for axis in range(3):
+        for value, sign in ((lo[axis], -1), (hi[axis], 1)):
+            point = [0.0, 0.0, 0.0]
+            normal = [0.0, 0.0, 0.0]
+            point[axis], normal[axis] = value, sign
+            field = fx.intersection(field, fx.make_plane(_fxvec(point), _fxvec(normal)))
+    return field
+
+
+def get_plane_object(prim, cache, scale):
+    """Create a transformed plane clipped to authored world-space bounds."""
+    lo, hi = _bounds(prim, scale)
+    matrix = cache.GetLocalToWorldTransform(prim)
+    plane = fx.make_plane(fx.Vector(0, 0, 0), _normal(prim))
+    field = _clip_field(_world_to_local(plane, matrix, scale, prim.GetPath()), lo, hi)
+    rgb = _display_color(prim)
+    return SceneObject(str(prim.GetPath()), 'plane', field, fx.Color(*rgb, 0), rgb,
+                       bounds_min=lo, bounds_max=hi)
+
+
 def get_wisp_object(prim, cache, settings, unit_scale):
     """Create a seeded wisp density grid in local coordinates."""
     if _custom(prim, 'field_type', None) != 'wisp':
@@ -394,6 +425,18 @@ def _binary_operation(name):
     return lambda prim, inputs, scale: getattr(fx, name)(inputs[0].field, inputs[1].field)
 
 
+def _noise_warp_operation(prim, inputs, scale):
+    roughness = _positive(_custom(prim, 'roughness', 0.5), 'pbvfx:roughness', allow_zero=True)
+    octaves = _positive(_custom(prim, 'octaves', 3.0), 'pbvfx:octaves')
+    frequency = _positive(_custom(prim, 'frequency', 1.0), 'pbvfx:frequency') / scale
+    jump = _positive(_custom(prim, 'frequencyJump', 2.0), 'pbvfx:frequencyJump')
+    translation = _fxvec(_vec(_custom(prim, 'noiseTranslation', (0, 0, 0)), scale))
+    amplitude = _positive(_custom(prim, 'amplitude', 0.5), 'pbvfx:amplitude', allow_zero=True) * scale
+    direction = _normal(prim)
+    noise = fx.make_fspn(roughness, octaves, translation, frequency, jump)
+    return fx.noise_warp_field(inputs[0].field, noise, direction, amplitude)
+
+
 def _pyro_operation(prim, inputs, scale):
     roughness = _positive(_custom(prim, 'roughness', 0.5), 'pbvfx:roughness', allow_zero=True)
     octaves = _positive(_custom(prim, 'octaves', 3.0), 'pbvfx:octaves')
@@ -417,6 +460,7 @@ FIELD_OPERATIONS.update({
     'intersection': (2, _binary_operation('intersection'), 'inputs'),
     'cutout': (2, _binary_operation('cutout'), 'inputs'),
     'pyro': (1, _pyro_operation, 'inputs'),
+    'noise_warp': (1, _noise_warp_operation, 'explicit'),
     'add': (2, _binary_operation('add'), 'explicit'),
     'subtract': (2, _binary_operation('subtract'), 'explicit'),
 })
@@ -436,12 +480,16 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
             operations[path] = (prim, str(op))
             continue
         field_type = _custom(prim, 'field_type', None)
-        if field_type is not None and field_type != 'wisp':
+        if field_type is not None and field_type not in ('wisp', 'plane'):
             raise ValueError(f'{path}: unknown pbvfx:field_type {field_type!r}')
         if field_type and _custom(prim, 'isf_type', None) is not None:
             raise ValueError(f'{path}: choose either pbvfx:field_type or pbvfx:isf_type')
-        item = (get_wisp_object(prim, cache, settings, scale) if field_type == 'wisp'
-                else get_isf_object(prim, cache, scale))
+        if field_type == 'wisp':
+            item = get_wisp_object(prim, cache, settings, scale)
+        elif field_type == 'plane':
+            item = get_plane_object(prim, cache, scale)
+        else:
+            item = get_isf_object(prim, cache, scale)
         if item is None and prim.IsA(UsdGeom.Mesh):
             item = get_mesh_object(prim, settings, volume_meters_per_unit)
         elif item is None and prim.IsA(UsdGeom.Gprim):
@@ -472,12 +520,8 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
         consumed.update(targets)
         field = callback(prim, inputs, scale)
         if policy == 'explicit':
-            lo, hi = _custom(prim, 'boundsMin', None), _custom(prim, 'boundsMax', None)
-            if lo is None or hi is None:
-                raise ValueError(f'{path}: explicit pbvfx:boundsMin and pbvfx:boundsMax are required')
-            lo, hi = _vec(lo, scale), _vec(hi, scale)
-            if any(a >= b for a, b in zip(lo, hi)):
-                raise ValueError(f'{path}: invalid operation bounds')
+            lo, hi = _bounds(prim, scale)
+            field = _clip_field(field, lo, hi)
         elif policy == 'inputs':
             lo = tuple(min(obj.bounds_min[i] for obj in inputs) for i in range(3))
             hi = tuple(max(obj.bounds_max[i] for obj in inputs) for i in range(3))

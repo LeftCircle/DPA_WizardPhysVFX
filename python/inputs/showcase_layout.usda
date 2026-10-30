@@ -1,0 +1,157 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "World"
+{
+    def Camera "Camera"
+    {
+        float focalLength = 28
+        float horizontalAperture = 20.955
+        float verticalAperture = 11.7871875
+        float2 clippingRange = (0.1, 60)
+        double3 xformOp:translate = (0, 0, 30)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def SphereLight "Light"
+    {
+        color3f inputs:color = (1, 1, 1)
+        float inputs:intensity = 4
+        double3 xformOp:translate = (0, 8, 15)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def RenderSettings "Settings"
+    {
+        rel camera = </World/Camera>
+        uniform int2 resolution = (960, 540)
+        custom float pbvfx:minStep = 0.03
+        custom float pbvfx:maxStep = 0.06
+        custom float pbvfx:shadowStep = 0.2
+        custom float pbvfx:densityVoxelSize = 0.1
+        custom float pbvfx:colorVoxelSize = 0.1
+        custom float pbvfx:shadowVoxelSize = 0.35
+    }
+    def Sphere "UnionA"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(1, 0.15, 0.1)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (-6.5, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "UnionB"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(1, 0.15, 0.1)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (-5.5, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "IntersectA"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(0.2, 0.8, 0.25)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (-2.5, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "IntersectB"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(0.2, 0.8, 0.25)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (-1.5, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "CutA"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(0.1, 0.4, 1)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (1.5, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "CutB"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(0.1, 0.4, 1)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (2.5, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "AddA"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(1, 0.6, 0.1)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (5.5, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "AddB"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(1, 0.6, 0.1)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (6.5, 3, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "SubtractA"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(0.6, 0.2, 1)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (-6.5, -1, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "SubtractB"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(0.6, 0.2, 1)] ( interpolation = "constant" )
+        double radius = 1
+        double3 xformOp:translate = (-5.5, -1, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Sphere "PyroSource"
+    {
+        custom token pbvfx:isf_type = "isf_sphere"
+        color3f[] primvars:displayColor = [(1, 0.35, 0.1)] ( interpolation = "constant" )
+        double radius = 1.2
+        double3 xformOp:translate = (-2, -1, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Xform "PlaneSource"
+    {
+        custom token pbvfx:field_type = "plane"
+        custom float3 pbvfx:normal = (0, 1, 0)
+        custom point3f pbvfx:boundsMin = (-10, -5.5, -2)
+        custom point3f pbvfx:boundsMax = (10, -3.5, 2)
+        custom color3f pbvfx:color = (0.25, 0.35, 0.6)
+        double3 xformOp:translate = (0, -4.2, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Xform "WispOne"
+    {
+        custom token pbvfx:field_type = "wisp"
+        custom int pbvfx:wispDots = 40000
+        custom int pbvfx:wispSeed = 12
+        custom float pbvfx:wispMin = -2
+        custom float pbvfx:wispMax = 2
+        custom color3f pbvfx:color = (1, 0.65, 0.2)
+        double3 xformOp:translate = (2, -1, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def Xform "WispTwo"
+    {
+        custom token pbvfx:field_type = "wisp"
+        custom int pbvfx:wispDots = 40000
+        custom int pbvfx:wispSeed = 27
+        custom float pbvfx:wispMin = -2
+        custom float pbvfx:wispMax = 2
+        custom color3f pbvfx:color = (0.4, 0.8, 1)
+        double3 xformOp:translate = (6, -1, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}

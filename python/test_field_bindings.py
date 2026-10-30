@@ -129,6 +129,13 @@ class FieldBindingsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fx.FloatGrid(0)
 
+    def test_noise_warp_samples_displaced_position(self):
+        plane = fx.make_plane(self.origin, fx.Vector(0, 1, 0))
+        warped = fx.noise_warp_field(plane, fx.make_constant(0.5), fx.Vector(0, 2, 0), 2.0)
+        self.assertAlmostEqual(warped.eval(self.origin), 1.0)
+        with self.assertRaises(ValueError):
+            fx.noise_warp_field(plane, fx.make_constant(1.0), self.origin, 1.0)
+
     def test_noise_overloads(self):
         vals = fx.FSVals(0.5, 2.0, self.origin, 1.0, 2.0)
         direct = fx.fspn(vals, self.point)

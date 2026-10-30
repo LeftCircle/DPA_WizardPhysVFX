@@ -273,12 +273,14 @@ class TranslationTests(unittest.TestCase):
         op = Prim(None, '/sum', {'pbvfx:operation': 'add', 'pbvfx:inputs': ['/sphere', '/sphere']})
         stage.Traverse = lambda: original + [op]
         module.fx.add = lambda a, b: ('add', a, b)
+        module.fx.make_plane = lambda p, n: ('plane', p, n)
+        module.fx.intersection = lambda a, b: ('intersection', a, b)
         with self.assertRaisesRegex(ValueError, 'explicit'):
             module.load_scene('scene')
         op.values.update({'pbvfx:boundsMin': (-10, -10, -10), 'pbvfx:boundsMax': (10, 10, 10)})
         scene = module.load_scene('scene')
         self.assertEqual(scene.objects[0].bounds_min, (-5, -5, -5))
-        self.assertEqual(scene.sdf[0], 'add')
+        self.assertEqual(scene.sdf[0], 'intersection')
 
     def test_wisp_uses_density_and_transformed_grid_bounds(self):
         module, sphere, _, _, _, _ = fixture()
@@ -309,6 +311,27 @@ class TranslationTests(unittest.TestCase):
         prim.values['pbvfx:wispDots'] = 0
         with self.assertRaisesRegex(ValueError, 'wispDots'):
             module.load_scene('scene')
+
+    def test_bounded_plane_and_noise_warp(self):
+        module, _, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        initial = [p for p in stage.Traverse() if p.path != '/sphere']
+        plane = Prim(None, '/plane', {'pbvfx:field_type': 'plane',
+                     'pbvfx:boundsMin': (-2, -2, -2), 'pbvfx:boundsMax': (2, 2, 2)})
+        warp = Prim(None, '/warp', {'pbvfx:operation': 'noise_warp', 'pbvfx:inputs': ['/plane'],
+                    'pbvfx:boundsMin': (-2, -2, -2), 'pbvfx:boundsMax': (2, 2, 2),
+                    'pbvfx:amplitude': 0.5})
+        stage.Traverse = lambda: initial + [warp, plane]
+        module.fx.make_plane = lambda p, n: ('plane', p, n)
+        module.fx.intersection = lambda a, b: ('intersection', a, b)
+        module.fx.make_fspn = lambda *args: ('noise', args)
+        seen = []
+        module.fx.noise_warp_field = lambda *args: seen.append(args) or ('warp', args)
+        scene = module.load_scene('scene')
+        self.assertEqual([o.kind for o in scene.objects], ['noise_warp'])
+        self.assertAlmostEqual(seen[0][3], 0.25)
+        self.assertEqual(seen[0][1][0], 'noise')
+        self.assertEqual(scene.objects[0].bounds_min, (-1, -1, -1))
 
     def test_unknown_tags_and_untagged_primitives_are_rejected(self):
         module, sphere, _, _, _, _ = fixture()

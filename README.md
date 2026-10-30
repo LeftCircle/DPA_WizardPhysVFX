@@ -339,7 +339,7 @@ Amplitude and translation are in stage length units; the existing pyro field
 adds a non-negative displacement for non-negative amplitude. The operation
 inherits conservative input bounds. Arithmetic operations may extend beyond
 those bounds, so they require explicit `point3f pbvfx:boundsMin` and
-`pbvfx:boundsMax` in stage world units. Invalid relationships, unknown
+`pbvfx:boundsMax` in stage world units; the result is clipped to that box. Invalid relationships, unknown
 operations, and cyclic graphs raise errors.
 
 Define operations in the same stage as the layout, or put them in a layer
@@ -418,3 +418,27 @@ Run the binding and USD loader tests with:
 ```bash
 PYTHONPATH="$PWD/build/python:$PWD/python" python -m unittest test_wisps -v
 ```
+
+
+## Operations and wisps showcase
+
+[`showcase_layout.usda`](python/inputs/showcase_layout.usda) defines the scene,
+and [`showcase_operations.usda`](python/inputs/showcase_operations.usda)
+composes it and defines union, intersection, cutout, add, subtract, pyro, and
+noise-warp operations. Two independently seeded wisps and a bounded plane are
+included. To render the composed scene from the repository root:
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python python/usd_sphere_scene.py \
+  python/inputs/showcase_operations.usda --output outputs/showcase.exr
+```
+
+`pbvfx:field_type = "plane"` creates a plane through the prim's local origin,
+using `pbvfx:normal` (default `(0, 1, 0)`). It requires `pbvfx:boundsMin` and
+`pbvfx:boundsMax` in stage world units and clips the field to that box.
+`pbvfx:operation = "noise_warp"` takes one input and evaluates it at
+`p + normal * amplitude * fspn(p)`. Its `roughness`, `octaves`, `frequency`,
+`frequencyJump`, `noiseTranslation`, `normal`, and `amplitude` attributes
+control the noise; it also requires explicit bounds, which clip the result.
+Frequency is cycles per stage unit and amplitude is in stage units. Since the
+input plane is itself clipped, its bounds should cover the displaced surface.

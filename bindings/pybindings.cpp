@@ -386,6 +386,16 @@ PYBIND11_MODULE(physics_vfx, module)
     module.def("make_pyro", &make_pyro, py::arg("field"), py::arg("roughness"),
         py::arg("octaves"), py::arg("translation"), py::arg("frequency"),
         py::arg("frequency_jump"), py::arg("amplitude"), py::arg("gamma"), py::arg("iters") = 1);
+    module.def("noise_warp_field", [](const vspf& field, const vspf& noise,
+                                        const Vector& direction, float amplitude) {
+        if (!field || !noise || !std::isfinite(amplitude) ||
+            direction.magnitude() < 1e-10 || !std::isfinite(direction.magnitude()))
+            throw py::value_error("invalid noise warp arguments");
+        const auto axis = direction.unitvector();
+        return funcfield<float>([field, noise, axis, amplitude](const Vector& p) {
+            return field->eval(p + axis * (amplitude * noise->eval(p)));
+        });
+    }, py::arg("field"), py::arg("noise"), py::arg("direction"), py::arg("amplitude"));
     module.def("make_identity_field", &make_identity_field);
     module.def("make_grad_field", &make_grad_field, py::arg("field"));
     module.def("makeNPT", &makeNPT, py::arg("field"));

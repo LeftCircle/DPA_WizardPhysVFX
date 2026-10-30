@@ -338,20 +338,110 @@ def _prepare_object(prim, item, settings):
     return item
 
 
+# Operation callbacks take (prim, input SceneObjects, stage-to-renderer unit scale).
+# Applications may register additional scalar-field operations here. Custom
+# operations must author explicit bounds with pbvfx:boundsMin/Max.
+FIELD_OPERATIONS = {}
+
+
+def _binary_operation(name):
+    return lambda prim, inputs, scale: getattr(fx, name)(inputs[0].field, inputs[1].field)
+
+
+def _pyro_operation(prim, inputs, scale):
+    roughness = _positive(_custom(prim, 'roughness', 0.5), 'pbvfx:roughness', allow_zero=True)
+    octaves = _positive(_custom(prim, 'octaves', 3.0), 'pbvfx:octaves')
+    frequency = _positive(_custom(prim, 'frequency', 1.0), 'pbvfx:frequency')
+    jump = _positive(_custom(prim, 'frequencyJump', 2.0), 'pbvfx:frequencyJump')
+    amplitude = _positive(_custom(prim, 'amplitude', 0.25), 'pbvfx:amplitude', allow_zero=True) * scale
+    gamma = _positive(_custom(prim, 'gamma', 1.0), 'pbvfx:gamma')
+    iters = int(_custom(prim, 'iterations', 1))
+    if iters < 1:
+        raise ValueError(f'{prim.GetPath()}: pbvfx:iterations must be positive')
+    translation = _fxvec(_vec(_custom(prim, 'noiseTranslation', (0, 0, 0)), scale))
+    return fx.make_pyro(inputs[0].field, roughness, octaves, translation,
+                        frequency, jump, amplitude, gamma, iters)
+
+
+# Entries are (input count, callable, bounds policy).
+# 'inputs' is safe for these CSG operations and non-negative pyro amplitude;
+# 'explicit' requires bounds supplied by the USD author.
+FIELD_OPERATIONS.update({
+    'union': (2, _binary_operation('union_fields'), 'inputs'),
+    'intersection': (2, _binary_operation('intersection'), 'inputs'),
+    'cutout': (2, _binary_operation('cutout'), 'inputs'),
+    'pyro': (1, _pyro_operation, 'inputs'),
+    'add': (2, _binary_operation('add'), 'explicit'),
+    'subtract': (2, _binary_operation('subtract'), 'explicit'),
+})
+
+
 def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
-    """Load tagged ISFs; untagged geometry is converted as a USD Mesh."""
+    """Resolve geometry and operation relationships; return unconsumed roots."""
     scale = _unit_scale(stage, volume_meters_per_unit)
     cache = UsdGeom.XformCache(Usd.TimeCode.Default())
-    objects = []
-    for prim in stage.Traverse():
+    prims = list(stage.Traverse())
+    operations = {}
+    objects = {}
+    for prim in prims:
+        path = str(prim.GetPath())
+        op = _custom(prim, 'operation', None)
+        if op is not None:
+            operations[path] = (prim, str(op))
+            continue
         item = get_isf_object(prim, cache, scale)
+        if item is None and prim.IsA(UsdGeom.Mesh):
+            item = get_mesh_object(prim, settings, volume_meters_per_unit)
+        elif item is None and prim.IsA(UsdGeom.Gprim):
+            raise ValueError(f'{path}: untagged geometry must be a USD Mesh')
         if item is not None:
-            objects.append(_prepare_object(prim, item, settings))
-        elif prim.IsA(UsdGeom.Mesh):
-            objects.append(_prepare_object(prim, get_mesh_object(prim, settings, volume_meters_per_unit), settings))
-        elif prim.IsA(UsdGeom.Gprim):
-            raise ValueError(f'{prim.GetPath()}: untagged geometry must be a USD Mesh')
-    return objects
+            objects[path] = _prepare_object(prim, item, settings)
+
+    consumed, active = set(), set()
+
+    def resolve(path):
+        if path in objects:
+            return objects[path]
+        if path in active:
+            raise ValueError(f'{path}: cyclic field operation')
+        if path not in operations:
+            raise ValueError(f'{path}: field operation input does not reference a field prim')
+        prim, name = operations[path]
+        if name not in FIELD_OPERATIONS:
+            raise ValueError(f'{path}: unknown field operation {name!r}')
+        count, callback, policy = FIELD_OPERATIONS[name]
+        rel = prim.GetRelationship('pbvfx:inputs')
+        targets = [str(target) for target in rel.GetTargets()] if rel else []
+        if len(targets) != count:
+            raise ValueError(f'{path}: {name} requires {count} input(s)')
+        active.add(path)
+        inputs = [resolve(target) for target in targets]
+        active.remove(path)
+        consumed.update(targets)
+        field = callback(prim, inputs, scale)
+        if policy == 'explicit':
+            lo, hi = _custom(prim, 'boundsMin', None), _custom(prim, 'boundsMax', None)
+            if lo is None or hi is None:
+                raise ValueError(f'{path}: explicit pbvfx:boundsMin and pbvfx:boundsMax are required')
+            lo, hi = _vec(lo, scale), _vec(hi, scale)
+            if any(a >= b for a, b in zip(lo, hi)):
+                raise ValueError(f'{path}: invalid operation bounds')
+        elif policy == 'inputs':
+            lo = tuple(min(obj.bounds_min[i] for obj in inputs) for i in range(3))
+            hi = tuple(max(obj.bounds_max[i] for obj in inputs) for i in range(3))
+        else:
+            raise ValueError(f'{path}: unknown operation bounds policy {policy!r}')
+        rgb = _display_color(prim) if (prim.GetAttribute('primvars:displayColor') or
+                                      prim.GetAttribute('pbvfx:color')) else inputs[0].rgb
+        item = SceneObject(path, name, field, fx.Color(*rgb, 0), rgb,
+                           bounds_min=lo, bounds_max=hi)
+        objects[path] = _prepare_object(prim, item, settings)
+        return objects[path]
+
+    for path in operations:
+        resolve(path)
+    return [objects[str(p.GetPath())] for p in prims
+            if str(p.GetPath()) in objects and str(p.GetPath()) not in consumed]
 
 
 @dataclass

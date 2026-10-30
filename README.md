@@ -307,3 +307,56 @@ Run the new scene tests using the built module and OpenUSD:
 PYTHONPATH="$PWD/build/python:$PWD/python" python -m unittest discover \
   -s python -p 'test_usd_general_scene.py' -v
 ```
+
+
+## USD field operations
+
+Operation prims select input fields with the ordered `pbvfx:inputs` relationship.
+An operation consumes its inputs: only unreferenced fields and operation
+results are included in the final scene union. Operations can refer to other
+operations, can share inputs, and may set `pbvfx:stamp` to stamp the result.
+The result inherits the first input's color unless the operation prim supplies
+`primvars:displayColor` or `pbvfx:color`.
+
+```usda
+def Xform "Cutout" {
+    custom token pbvfx:operation = "cutout"
+    custom rel pbvfx:inputs = [</World/Body>, </World/Cutter>]
+}
+def Xform "Pyro" {
+    custom token pbvfx:operation = "pyro"
+    custom rel pbvfx:inputs = </World/Body>
+    custom float pbvfx:amplitude = 0.35
+}
+```
+
+`cutout` means first input minus second. Built-in binary operations are
+`cutout`, `union`, `intersection`, `add`, and `subtract`; `pyro` takes one
+input and calls `fx.make_pyro`. Pyro supports `pbvfx:roughness` (0.5),
+`octaves` (3), `frequency` (1), `frequencyJump` (2), `amplitude` (0.25),
+`gamma` (1), `iterations` (1), and `noiseTranslation` ((0, 0, 0)).
+Amplitude and translation are in stage length units; the existing pyro field
+adds a non-negative displacement for non-negative amplitude. The operation
+inherits conservative input bounds. Arithmetic operations may extend beyond
+those bounds, so they require explicit `point3f pbvfx:boundsMin` and
+`pbvfx:boundsMax` in stage world units. Invalid relationships, unknown
+operations, and cyclic graphs raise errors.
+
+Define operations in the same stage as the layout, or put them in a layer
+that composes the layout. [`python/inputs/operations.usda`](python/inputs/operations.usda)
+sublayers [`operation_layout.usda`](python/inputs/operation_layout.usda) and
+adds a cutout and a pyro sphere. Render the composed stage with:
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python python/usd_sphere_scene.py \
+  python/inputs/operations.usda --output outputs/operations.exr
+```
+
+For other operations exposed by Python, applications can add an entry to
+`usd_sphere_scene.FIELD_OPERATIONS` before loading a stage. Each entry is
+`(input_count, callback, bounds_policy)`, where `callback(prim, inputs,
+unit_scale)` returns a scalar field and `inputs` are `SceneObject` instances.
+Use the `explicit` bounds policy and author the bounds above unless the
+operation is guaranteed to remain within the union of its input bounds; use
+`inputs` only with that guarantee. This is an extension point for arbitrary
+Python field operations, not unrestricted execution of names from USD.

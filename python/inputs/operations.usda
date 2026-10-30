@@ -1,0 +1,25 @@
+#usda 1.0
+(
+    subLayers = [@operation_layout.usda@]
+)
+
+over "World"
+{
+    def Xform "Cutout"
+    {
+        custom token pbvfx:operation = "cutout"
+        custom rel pbvfx:inputs = [</World/Body>, </World/Cutter>]
+    }
+    def Xform "Pyro"
+    {
+        custom token pbvfx:operation = "pyro"
+        custom rel pbvfx:inputs = </World/PyroSource>
+        custom float pbvfx:amplitude = 0.35
+        custom float pbvfx:roughness = 0.5
+        custom float pbvfx:octaves = 3
+        custom float pbvfx:frequency = 1
+        custom float pbvfx:frequencyJump = 2
+        custom float pbvfx:gamma = 1
+        custom int pbvfx:iterations = 1
+    }
+}

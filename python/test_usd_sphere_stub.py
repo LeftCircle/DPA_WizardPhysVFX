@@ -39,6 +39,9 @@ class Prim:
             return self.kind in (Sphere, Mesh)
         return self.kind is kind
     def GetPath(self): return self.path
+    def GetRelationship(self, name):
+        value = self.values.get(name)
+        return SimpleNamespace(GetTargets=lambda: value) if value is not None else None
     def GetAttribute(self, name):
         return Attr(self.values[name]) if name in self.values else None
 
@@ -237,6 +240,45 @@ class TranslationTests(unittest.TestCase):
         sphere.values['pbvfx:stamp'] = 'yes'
         with self.assertRaisesRegex(ValueError, 'must be a bool'):
             module.load_scene('scene')
+
+    def test_operation_graph_consumes_inputs_and_supports_chaining(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        cutter = Prim(Sphere, '/cutter', {'Radius': 1, 'pbvfx:isf_type': 'isf_sphere'}, Matrix((4, 2, -1)))
+        cut = Prim(None, '/cut', {'pbvfx:operation': 'cutout', 'pbvfx:inputs': ['/sphere', '/cutter']})
+        pyro = Prim(None, '/pyro', {'pbvfx:operation': 'pyro', 'pbvfx:inputs': ['/cut']})
+        stage.Traverse = lambda: original + [pyro, cut, cutter]
+        module.fx.cutout = lambda a, b: ('cutout', a, b)
+        module.fx.make_pyro = lambda *args: ('pyro', args)
+        scene = module.load_scene('scene')
+        self.assertEqual([o.path for o in scene.objects], ['/pyro'])
+        self.assertEqual(scene.sdf[0], 'pyro')
+        self.assertEqual(scene.sdf[1][0][0], 'cutout')
+        self.assertEqual(scene.objects[0].rgb, (1, 1, 1))
+        cut.values['pbvfx:inputs'] = ['/sphere', '/missing']
+        with self.assertRaisesRegex(ValueError, 'does not reference'):
+            module.load_scene('scene')
+        cut.values['pbvfx:inputs'] = ['/sphere', '/pyro']
+        with self.assertRaisesRegex(ValueError, 'cyclic'):
+            module.load_scene('scene')
+        cut.values['pbvfx:inputs'] = ['/sphere']
+        with self.assertRaisesRegex(ValueError, 'requires 2'):
+            module.load_scene('scene')
+
+    def test_arithmetic_operation_requires_explicit_bounds(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        op = Prim(None, '/sum', {'pbvfx:operation': 'add', 'pbvfx:inputs': ['/sphere', '/sphere']})
+        stage.Traverse = lambda: original + [op]
+        module.fx.add = lambda a, b: ('add', a, b)
+        with self.assertRaisesRegex(ValueError, 'explicit'):
+            module.load_scene('scene')
+        op.values.update({'pbvfx:boundsMin': (-10, -10, -10), 'pbvfx:boundsMax': (10, 10, 10)})
+        scene = module.load_scene('scene')
+        self.assertEqual(scene.objects[0].bounds_min, (-5, -5, -5))
+        self.assertEqual(scene.sdf[0], 'add')
 
     def test_unknown_tags_and_untagged_primitives_are_rejected(self):
         module, sphere, _, _, _, _ = fixture()

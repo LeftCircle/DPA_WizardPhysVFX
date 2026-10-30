@@ -66,6 +66,17 @@ class GeneralSceneTests(unittest.TestCase):
             color = scene.color.eval(p)
             self.assertEqual((color.red, color.green, color.blue), rgb)
 
+    def test_composed_operation_scene(self):
+        scene = loader.load_scene(SCENE.parent / 'operations.usda')
+        self.assertEqual({o.kind for o in scene.objects}, {'cutout', 'pyro'})
+        cut = next(o for o in scene.objects if o.kind == 'cutout')
+        self.assertLess(cut.field.eval(fx.Vector(-4.5, 0, 0)), 0)
+        self.assertGreater(cut.field.eval(fx.Vector(-2, 0, 0)), 0)
+        self.assertGreater(cut.field.eval(fx.Vector(10, 0, 0)), 0)
+        self.assertAlmostEqual(cut.rgb[0], 1)
+        self.assertAlmostEqual(cut.rgb[1], 0.1)
+        self.assertAlmostEqual(cut.rgb[2], 0.05)
+
     def test_stage_helpers_and_derived_bounds(self):
         stage = Usd.Stage.Open(str(SCENE))
         camera = loader.get_camera(stage)

@@ -1,5 +1,6 @@
 """Dependency-free contract tests for scene translation and dispatch."""
 import importlib.util
+import io
 import math
 from pathlib import Path
 import sys
@@ -7,6 +8,7 @@ import tempfile
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
+from contextlib import redirect_stdout
 
 
 class Attr:
@@ -370,12 +372,18 @@ class TranslationTests(unittest.TestCase):
         module.fx.load_float_grid = lambda path: events.append('load') or grid
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp) / 'caches'
-            first = module.load_scene('scene', cache_dir=cache)
+            log = io.StringIO()
+            with redirect_stdout(log):
+                first = module.load_scene('scene', cache_dir=cache)
             self.assertFalse(first.objects[0].cache_hit)
             self.assertEqual(events, ['stamp', 'save'])
             self.assertTrue((cache / 'sphere_cache.vdb').is_file())
-            second = module.load_scene('scene', cache_dir=cache)
+            with redirect_stdout(log):
+                second = module.load_scene('scene', cache_dir=cache)
             self.assertTrue(second.objects[0].cache_hit)
+            self.assertIn('Stamp field /sphere: starting', log.getvalue())
+            self.assertIn('Stamp field /sphere: completed in', log.getvalue())
+            self.assertIn('Stamp cache hit for /sphere', log.getvalue())
             self.assertEqual(events, ['stamp', 'save', 'load'])
             sphere.values.pop('pbvfx:cacheName')
             other = Path(tmp) / 'unnamed'

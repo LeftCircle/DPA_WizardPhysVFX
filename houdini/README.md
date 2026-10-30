@@ -63,6 +63,12 @@ be used on a configured Python LOP if you want a local, shareable HDA; the
      --cache-dir outputs/stamp_cache
    ```
 
+The script reports elapsed time as it opens the stage, creates or reuses each
+field grid, builds each light's shadow map, ray marches, and writes the image.
+The final total covers the complete command; the render total includes native
+render preparation, shadow maps, ray marching, and image output. Rebuild the
+Python extension after updating the native renderer to get its timing messages.
+
 Field and operation metadata can also be authored in another Solaris layer
 that sublayers or references the layout. Operation targets refer to the
 **composed stage's** absolute prim paths. Referenced inputs are consumed by an

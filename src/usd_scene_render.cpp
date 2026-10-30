@@ -1,6 +1,10 @@
 #include "usd_scene_render.h"
 
 #include <cmath>
+#include <chrono>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -11,6 +15,16 @@
 
 namespace lux {
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+void report_elapsed(const std::string& label, Clock::time_point start) {
+    const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
+    std::ostringstream message;
+    message << "[PhysVFX] " << label << ": completed in "
+            << std::fixed << std::setprecision(2) << seconds << "s";
+    std::cout << message.str() << std::endl;
+}
 
 bool finite_vector(const Vector& v) {
     return std::isfinite(v.X()) && std::isfinite(v.Y()) && std::isfinite(v.Z());
@@ -76,16 +90,30 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
     marcher.set_max_ds(rs.max_step);
     marcher.set_exticntion_coefficient(rs.kappa);
     marcher.set_Tmin(0.001f);
+    std::cout << "[PhysVFX] Build render bounds: starting" << std::endl;
+    auto start = Clock::now();
     marcher.add_levelset(make_bounds_levelset(lo, hi, rs.get_density_vs()));
-    for (const auto& light : lights) {
+    report_elapsed("Build render bounds", start);
+    for (size_t i = 0; i < lights.size(); ++i) {
+        const auto& light = lights[i];
+        const auto label = "Shadow map " + std::to_string(i + 1) + "/" + std::to_string(lights.size());
+        std::cout << "[PhysVFX] " << label << ": starting" << std::endl;
+        start = Clock::now();
         auto shadow = make_deep_shadow_map_parallel(density, rs.get_shadow_vs(),
             shadow_bounds, light, rs.shadow_step, light.kappa);
         marcher.add_shadow_map(shadow, light.color);
+        report_elapsed(label, start);
     }
 
     ImageData image(rs.width, rs.height, 4);
+    std::cout << "[PhysVFX] Ray march image: starting" << std::endl;
+    start = Clock::now();
     marcher.ray_march_image(camera, image, density, color);
+    report_elapsed("Ray march image", start);
+    std::cout << "[PhysVFX] Write image: starting" << std::endl;
+    start = Clock::now();
     write_image(image, filename);
+    report_elapsed("Write image", start);
 }
 
 }

@@ -4,11 +4,30 @@ import math
 import os
 import re
 import tempfile
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 from pxr import Gf, Usd, UsdGeom, UsdLux, UsdRender
 import physics_vfx as fx
+
+
+def _progress(message):
+    print(f'[PhysVFX] {message}', flush=True)
+
+
+@contextmanager
+def _timed(label):
+    _progress(f'{label}: starting')
+    start = time.perf_counter()
+    try:
+        yield
+    except Exception:
+        _progress(f'{label}: failed after {time.perf_counter() - start:.2f}s')
+        raise
+    else:
+        _progress(f'{label}: completed in {time.perf_counter() - start:.2f}s')
 
 
 def _vec(value, scale=1.0):
@@ -335,7 +354,12 @@ class StampCache:
 
     def load(self, prim):
         path = self.path_for(prim)
-        return fx.load_float_grid(str(path)) if path is not None and path.exists() else None
+        if path is None or not path.exists():
+            return None
+        with _timed(f'Load stamp cache {prim.GetPath()} ({path})'):
+            grid = fx.load_float_grid(str(path))
+        _progress(f'Stamp cache hit for {prim.GetPath()}; skipping cached work')
+        return grid
 
     def save(self, prim, grid):
         path = self.path_for(prim)
@@ -345,8 +369,9 @@ class StampCache:
         fd, temp = tempfile.mkstemp(prefix='.stamp-', suffix='.vdb', dir=self.directory)
         os.close(fd)
         try:
-            fx.save_to_disk(grid, temp)
-            os.replace(temp, path)
+            with _timed(f'Save stamp cache {prim.GetPath()} ({path})'):
+                fx.save_to_disk(grid, temp)
+                os.replace(temp, path)
         finally:
             if os.path.exists(temp):
                 os.unlink(temp)
@@ -371,12 +396,14 @@ def get_mesh_object(prim, settings, volume_meters_per_unit=1.0, stamp_cache=None
         field = fx.make_grid_field(grid)
     elif stamp_cache and name:
         from usd_mesh import mesh_prim_to_grid
-        grid = mesh_prim_to_grid(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
+        with _timed(f'Voxelize mesh {prim.GetPath()}'):
+            grid = mesh_prim_to_grid(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
         field = fx.make_grid_field(grid)
         if not _custom(prim, 'stamp', False):
             stamp_cache.save(prim, grid)
     else:
-        field = mesh_prim_to_field(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
+        with _timed(f'Voxelize mesh {prim.GetPath()}'):
+            field = mesh_prim_to_field(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
     rgb = _display_color(prim)
     bounds_min, bounds_max = mesh_world_bounds(prim, volume_meters_per_unit)
     item = SceneObject(str(prim.GetPath()), 'mesh', field, fx.Color(*rgb, 0), rgb,
@@ -447,7 +474,8 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
         wisp = fx.wisp_uniform(dots, -density, clump, pscale, noise('wispNoise1'),
                                noise('wispNoise2'), displacement, fx.Vector(0, 0, 0),
                                fx.CoordinateSys(), seed, fx.Color(1, 1, 1, 1), minimum, maximum)
-        wisp.stamp(grid)
+        with _timed(f'Stamp wisp {prim.GetPath()} ({dots} dots)'):
+            wisp.stamp(grid)
         if stamp_cache:
             stamp_cache.save(prim, grid)
     else:
@@ -490,7 +518,8 @@ def _prepare_object(prim, item, settings, stamp_cache=None):
         lo = tuple(x - padding for x in item.bounds_min)
         hi = tuple(x + padding for x in item.bounds_max)
         bounds = fx.world_space_to_bounds(_fxvec(lo), _fxvec(hi), voxel_size)
-        grid = fx.stamp_grid_parallel(voxel_size, 3.0 * voxel_size, item.field, bounds)
+        with _timed(f'Stamp field {prim.GetPath()}'):
+            grid = fx.stamp_grid_parallel(voxel_size, 3.0 * voxel_size, item.field, bounds)
         item.field = fx.make_grid_field(grid)
         item.stamped = True
         if stamp_cache:
@@ -683,21 +712,26 @@ class Scene:
     def light_shadow_kappa(self): return _one(self.lights, 'light').kappa
 
     def render(self, filename):
-        fx.render_usd_scene(self.density, self.color, self.camera, self.lights,
-                            self.settings, _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename))
+        with _timed(f'Render scene and write {filename}'):
+            fx.render_usd_scene(self.density, self.color, self.camera, self.lights,
+                                self.settings, _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename))
 
 
 def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache"):
     """Return PhysVFX components and combined fields for a USD stage."""
-    stage = Usd.Stage.Open(str(filename))
+    with _timed(f'Open USD stage {filename}'):
+        stage = Usd.Stage.Open(str(filename))
     if not stage:
         raise ValueError(f'Could not open USD stage: {filename}')
-    camera = get_camera_info(stage, volume_meters_per_unit)
-    settings = get_render_settings(stage, volume_meters_per_unit, camera)
-    lights = get_lights(stage, settings, volume_meters_per_unit)
-    objects = get_scene_objects(stage, settings, volume_meters_per_unit, cache_dir)
+    with _timed('Read camera, render settings and lights'):
+        camera = get_camera_info(stage, volume_meters_per_unit)
+        settings = get_render_settings(stage, volume_meters_per_unit, camera)
+        lights = get_lights(stage, settings, volume_meters_per_unit)
+    with _timed('Build scene fields and operations'):
+        objects = get_scene_objects(stage, settings, volume_meters_per_unit, cache_dir)
     if not objects:
         raise ValueError('No tagged ISFs or USD meshes found')
+    _progress(f'Scene contains {len(objects)} root field(s) and {len(lights)} light(s)')
     sdf = objects[0].field
     for obj in objects[1:]:
         sdf = fx.union_fields(sdf, obj.field)
@@ -719,13 +753,15 @@ def main(argv=None):
     parser.add_argument('--volume-meters-per-unit', type=float, default=1.0)
     parser.add_argument('--cache-dir', default='cache', help='Directory for named stamp caches (default: cache)')
     args = parser.parse_args(argv)
+    _progress(f'Starting USD render: {args.scene}')
+    start = time.perf_counter()
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
         load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir).render(output)
     except (ValueError, RuntimeError) as exc:
         parser.exit(1, f'error: {exc}\n')
-    print(f'Wrote {output}')
+    _progress(f'Wrote {output}; total time {time.perf_counter() - start:.2f}s')
 
 
 if __name__ == '__main__':

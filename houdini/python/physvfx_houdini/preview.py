@@ -3,6 +3,67 @@ import math
 
 PREVIEW_CHILD = '__physvfx_bounds'
 SURFACE_CHILD = '__physvfx_surface'
+CAMERA_CHILD = '__physvfx_camera_range'
+
+
+def camera_range_lines(near, far, horizontal, vertical, focal, steps=12):
+    """Camera-local lines on spherical ray-distance boundaries and their sides."""
+    hx, hy = horizontal / (2.0 * focal), vertical / (2.0 * focal)
+    def point(u, v, distance):
+        x, y = u * hx, v * hy
+        factor = distance / math.sqrt(x * x + y * y + 1.0)
+        return (x * factor, y * factor, -factor)
+    lines = []
+    for radius in (near, far):
+        if radius == 0:
+            continue
+        for t in (-1.0, 0.0, 1.0):
+            for axis in (0, 1):
+                for i in range(steps):
+                    a, b = -1.0 + 2.0 * i / steps, -1.0 + 2.0 * (i + 1) / steps
+                    lines.append((point(a, t, radius), point(b, t, radius)) if axis == 0
+                                 else (point(t, a, radius), point(t, b, radius)))
+    for u in (-1.0, 0.0, 1.0):
+        for v in (-1.0, 0.0, 1.0):
+            lines.append((point(u, v, near), point(u, v, far)))
+    return lines
+
+
+def author_camera_preview(stage, prim, values):
+    """Author an excluded viewport guide under the camera."""
+    from pxr import Gf, Sdf, UsdGeom
+    path = str(prim.GetPath()) + '/' + CAMERA_CHILD
+    proxy = stage.GetPrimAtPath(path)
+    if proxy:
+        marker = proxy.GetAttribute('pbvfx:preview')
+        if not marker or marker.Get() is not True or not proxy.IsA(UsdGeom.BasisCurves):
+            raise ValueError(f'{path}: reserved preview path is already in use')
+    if not values.get('show_camera_preview', True):
+        if proxy:
+            UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
+        return
+    if not proxy:
+        proxy = stage.DefinePrim(path, 'BasisCurves')
+    if not proxy:
+        raise ValueError(f'{path}: could not create camera range preview')
+    proxy.CreateAttribute('pbvfx:preview', Sdf.ValueTypeNames.Bool, custom=True).Set(True)
+    near, far = values['clipping']
+    lines = camera_range_lines(near, far, values['horizontal_aperture'],
+                               values['vertical_aperture'], values['focal_length'])
+    points = [point for line in lines for point in line]
+    geom = UsdGeom.BasisCurves(proxy)
+    geom.CreateTypeAttr().Set(UsdGeom.Tokens.linear)
+    geom.CreateCurveVertexCountsAttr().Set([2] * len(lines))
+    geom.CreatePointsAttr().Set([Gf.Vec3f(*p) for p in points])
+    width = max(far * 0.0005, 0.0001)
+    geom.CreateWidthsAttr().Set([width])
+    geom.SetWidthsInterpolation(UsdGeom.Tokens.constant)
+    geom.CreateExtentAttr().Set([Gf.Vec3f(*(min(p[i] for p in points) - width / 2 for i in range(3))),
+                                 Gf.Vec3f(*(max(p[i] for p in points) + width / 2 for i in range(3)))])
+    UsdGeom.PrimvarsAPI(proxy).CreatePrimvar(
+        'displayColor', Sdf.ValueTypeNames.Color3fArray, UsdGeom.Tokens.constant
+    ).Set([Gf.Vec3f(0.3, 1.0, 0.4)])
+    UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)
 
 
 def _cube(extent):

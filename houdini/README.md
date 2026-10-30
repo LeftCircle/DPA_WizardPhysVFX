@@ -75,7 +75,7 @@ unless it is represented by a separate prim. Operations can be chained.
 | --- | --- |
 | **PhysVFX Field** | Select an existing prim or create one. Supports all eight analytic ISF types, a USD mesh, bounded plane, and wisp. Authors `pbvfx:isf_type` or `pbvfx:field_type`; mesh mode requires an existing `UsdGeomMesh` and leaves it untagged. |
 | **PhysVFX Operation** | `union`, `intersection`, `cutout`, `add`, `subtract`, `pyro`, and `noise_warp`. Authors `pbvfx:operation` and the ordered `pbvfx:inputs` relationship. Add, subtract, and noise warp clip to authored world-space bounds. |
-| **PhysVFX Camera** | Creates or edits a USD perspective Camera, authoring focal length, horizontal/vertical aperture, near/far clipping and zero aperture offsets. Place it with Houdini's transform tools. |
+| **PhysVFX Camera** | Creates or edits a USD perspective Camera, authoring focal length, horizontal/vertical aperture, near/far clipping and zero aperture offsets. A toggleable green guide shows the near/far ray-distance boundaries. Place it with Houdini's transform tools. |
 | **PhysVFX Light** | Creates or edits a USD SphereLight's color, intensity, exposure, and optional `pbvfx:shadowKappa`. Place it with Houdini's transform tools. |
 | **PhysVFX Render Settings** | Creates or edits a USD RenderSettings prim, its camera relationship, resolution and square-pixel aspect, plus all `pbvfx` ray-step, extinction, shadow and voxel controls used by the loader. |
 
@@ -104,8 +104,12 @@ Noise operations expose `roughness`, `octaves`, `frequency`, `frequencyJump`,
 `noiseTranslation`, and `amplitude`. Pyro additionally uses `gamma` and
 `iterations`; noise warp uses `normal` as its direction. The normal for a field
 is local; the noise-warp direction and bounds are in stage world coordinates.
-Use the **Bounds Minimum/Maximum** controls for planes and the three bounded
-operations. These are not Houdini transform handles.
+Positive pyro amplitude expands the field; negative amplitude contracts it.
+The automatic bounds for expanding pyro are an estimate, so enable **Use
+Explicit Pyro Bounds** and set **Bounds Minimum/Maximum** in world space when
+the result is clipped or when reliable bounds are needed. Those controls also
+apply to planes and the three bounded operations. They are not Houdini
+transform handles. Clear or rename any stamp cache after changing parameters.
 
 **Color Authoring** can inherit upstream color, write a constant USD
 `primvars:displayColor` (also useful for the viewport), or write
@@ -125,6 +129,11 @@ the exception: an empty name is explicitly authored to disable an upstream key.
   must be perspective, have zero aperture offsets and square pixels, with
   aperture aspect matching output resolution. The tools' camera and settings
   defaults match a 960×540 render.
+- The camera's green range guide depicts distances along rays, with curved
+  near/far boundaries; it is not the scene's volume grid bounds. It follows
+  the camera prim, so use unit camera scale for the guide to match the renderer,
+  which ignores camera scale. **Show Camera Range** hides the guide; existing
+  camera nodes use the default after restart but need recreation for the toggle.
 - Sphere transforms must be uniform and shear-free. USD stage `metersPerUnit`
   is respected by the renderer. Length parameters and authored bounds are in
   stage units, except voxel half-width (in voxels) and other dimensionless

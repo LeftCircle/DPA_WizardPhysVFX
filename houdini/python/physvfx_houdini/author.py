@@ -272,12 +272,14 @@ def author_operation(stage, v):
     if name in ('pyro', 'noise_warp'):
         for key in ('octaves', 'frequency', 'frequencyJump'):
             _positive(v[key], key)
-        for key in ('roughness', 'amplitude'):
-            _number(v[key], key, 0)
+        _number(v['roughness'], 'roughness', 0)
+        _number(v['amplitude'], 'amplitude', None if name == 'pyro' else 0)
         _vec(v['noiseTranslation'], 3, 'Noise translation')
         if name == 'pyro':
             _positive(v['gamma'], 'Gamma')
             _integer(v['iterations'], 'Iterations', 1)
+            if v.get('use_pyro_bounds', False):
+                _bounds(v)
         else:
             _normal(v['normal'], 'Warp direction')
     prim = _existing_or_create(stage, path, True, 'Xform')
@@ -294,6 +296,9 @@ def author_operation(stage, v):
         if name == 'pyro':
             _float(prim, 'gamma', float(v['gamma']))
             _attr(prim, 'iterations', 'Int', v['iterations'])
+            _attr(prim, 'usePyroBounds', 'Bool', bool(v.get('use_pyro_bounds', False)))
+            if v.get('use_pyro_bounds', False):
+                _write_bounds(prim, v)
         else:
             _float3(prim, 'normal', _normal(v['normal'], 'Warp direction'))
     _stamp(prim, v)
@@ -321,6 +326,11 @@ def author_camera(stage, v):
     camera.CreateHorizontalApertureOffsetAttr().Set(0.0)
     camera.CreateVerticalApertureOffsetAttr().Set(0.0)
     camera.CreateClippingRangeAttr().Set(Gf.Vec2f(near, far))
+    from .preview import author_camera_preview
+    try:
+        author_camera_preview(stage, prim, v)
+    except ValueError as exc:
+        raise AuthoringError(str(exc)) from exc
     return prim
 
 

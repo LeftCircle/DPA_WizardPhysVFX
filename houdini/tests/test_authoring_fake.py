@@ -224,6 +224,12 @@ class AuthoringContractTests(unittest.TestCase):
         camera = author(self.stage, 'camera', defaults('camera'))
         self.assertEqual(camera.attrs['Projection'].value, 'perspective')
         self.assertEqual(camera.attrs['ClippingRange'].value, (0.1, 100.0))
+        guide = self.stage.GetPrimAtPath('/World/Camera/__physvfx_camera_range')
+        self.assertTrue(guide.attrs['pbvfx:preview'].value)
+        self.assertEqual(guide.type_name, 'BasisCurves')
+        v = defaults('camera'); v['show_camera_preview'] = False
+        author(self.stage, 'camera', v)
+        self.assertEqual(guide.attrs['Visibility'].value, 'invisible')
         v = defaults('light'); v.update(override_shadow=True, shadowKappa=0.7)
         light = author(self.stage, 'light', v)
         self.assertEqual(light.attrs['pbvfx:shadowKappa'].value, 0.7)
@@ -231,6 +237,26 @@ class AuthoringContractTests(unittest.TestCase):
         self.assertEqual(settings.rels['Camera'].targets, ['/World/Camera'])
         self.assertEqual(settings.attrs['Resolution'].value, (960, 540))
         self.assertEqual(settings.attrs['pbvfx:densityVoxelSize'].value, 0.025)
+
+    def test_signed_pyro_and_explicit_bounds(self):
+        v = defaults('field'); v['path'] = '/World/A'
+        author(self.stage, 'field', v)
+        op = defaults('operation')
+        op.update(operation='pyro', input_a='/World/A', amplitude=-0.5,
+                  use_pyro_bounds=True, bounds_min=(-4, -3, -2), bounds_max=(4, 3, 2))
+        prim = author(self.stage, 'operation', op)
+        self.assertEqual(prim.attrs['pbvfx:amplitude'].value, -0.5)
+        self.assertTrue(prim.attrs['pbvfx:usePyroBounds'].value)
+        self.assertEqual(prim.attrs['pbvfx:boundsMin'].value, (-4, -3, -2))
+
+    def test_camera_guide_points_use_ray_distance(self):
+        import math
+        from physvfx_houdini.preview import camera_range_lines
+        lines = camera_range_lines(2, 8, 20, 10, 25)
+        for line in lines:
+            for point in line:
+                self.assertTrue(any(math.isclose(math.sqrt(sum(x*x for x in point)), r)
+                                    for r in (2, 8)))
 
     def test_custom_color_and_validation_errors(self):
         v = defaults('field'); v.update(color_mode='physvfx', color=(1, 0.2, 0.3))

@@ -115,10 +115,13 @@ PARAMETERS = {
             P("frequency", "Frequency", "float", 1.0),
             P("frequencyJump", "Frequency Jump", "float", 2.0),
             P("noiseTranslation", "Noise Translation", "vector", (0.0, 0.0, 0.0)),
-            P("amplitude", "Amplitude", "float", 0.25),
+            P("amplitude", "Amplitude", "float", 0.25,
+              "Pyro: positive expands and negative contracts. Noise warp requires a non-negative amplitude."),
             P("gamma", "Pyro Gamma", "float", 1.0),
             P("iterations", "Pyro Iterations", "int", 1),
             P("normal", "Warp Direction", "vector", (0.0, 1.0, 0.0)),
+            P("use_pyro_bounds", "Use Explicit Pyro Bounds", "toggle", False,
+              "Clip pyro to the world-space bounds below; otherwise expanding pyro uses estimated bounds."),
         ) + BOUNDS),
     ),
     "camera": (("Camera", (
@@ -128,6 +131,8 @@ PARAMETERS = {
         P("horizontal_aperture", "Horizontal Aperture", "float", 20.955),
         P("vertical_aperture", "Vertical Aperture", "float", 11.7871875),
         P("clipping", "Near / Far Clipping", "vector2", (0.1, 100.0)),
+        P("show_camera_preview", "Show Camera Range", "toggle", True,
+          "Show the camera ray-distance range as viewport guide geometry."),
     )),),
     "light": (("Sphere Light", (
         P("path", "Light Prim Path", "string", "/World/Light"),

@@ -282,6 +282,28 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(scene.objects[0].bounds_min, (-5, -5, -5))
         self.assertEqual(scene.sdf[0], 'intersection')
 
+    def test_pyro_signed_amplitude_and_explicit_bounds(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        op = Prim(None, '/pyro', {'pbvfx:operation': 'pyro', 'pbvfx:inputs': ['/sphere'],
+                    'pbvfx:amplitude': -0.5})
+        stage.Traverse = lambda: original + [op]
+        module.fx.make_pyro = lambda *args: ('pyro', args)
+        scene = module.load_scene('scene')
+        self.assertEqual(scene.sdf[1][6], -0.25)  # stage unit scale is 0.5
+        op.values['pbvfx:amplitude'] = 0.5
+        expanded = module.load_scene('scene')
+        self.assertEqual(expanded.sdf[1][6], 0.25)
+        self.assertLess(expanded.objects[0].bounds_min[0], scene.objects[0].bounds_min[0])
+        op.values.update({'pbvfx:usePyroBounds': True, 'pbvfx:boundsMin': (-10, -10, -10),
+                          'pbvfx:boundsMax': (10, 10, 10)})
+        module.fx.make_plane = lambda p, n: ('plane', p, n)
+        module.fx.intersection = lambda a, b: ('intersection', a, b)
+        bounded = module.load_scene('scene')
+        self.assertEqual(bounded.sdf[0], 'intersection')
+        self.assertEqual(bounded.objects[0].bounds_min, (-5, -5, -5))
+
     def test_wisp_uses_density_and_transformed_grid_bounds(self):
         module, sphere, _, _, _, _ = fixture()
         stage = module.Usd.Stage.Open('scene')

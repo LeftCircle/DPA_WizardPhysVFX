@@ -525,7 +525,10 @@ def _pyro_operation(prim, inputs, scale):
     octaves = _positive(_custom(prim, 'octaves', 3.0), 'pbvfx:octaves')
     frequency = _positive(_custom(prim, 'frequency', 1.0), 'pbvfx:frequency')
     jump = _positive(_custom(prim, 'frequencyJump', 2.0), 'pbvfx:frequencyJump')
-    amplitude = _positive(_custom(prim, 'amplitude', 0.25), 'pbvfx:amplitude', allow_zero=True) * scale
+    amplitude = float(_custom(prim, 'amplitude', 0.25))
+    if not math.isfinite(amplitude):
+        raise ValueError('pbvfx:amplitude must be finite')
+    amplitude *= scale
     gamma = _positive(_custom(prim, 'gamma', 1.0), 'pbvfx:gamma')
     iters = int(_custom(prim, 'iterations', 1))
     if iters < 1:
@@ -536,13 +539,13 @@ def _pyro_operation(prim, inputs, scale):
 
 
 # Entries are (input count, callable, bounds policy).
-# 'inputs' is safe for these CSG operations and non-negative pyro amplitude;
+# 'inputs' is safe for CSG operations; pyro uses separate bounds handling;
 # 'explicit' requires bounds supplied by the USD author.
 FIELD_OPERATIONS.update({
     'union': (2, _binary_operation('union_fields'), 'inputs'),
     'intersection': (2, _binary_operation('intersection'), 'inputs'),
     'cutout': (2, _binary_operation('cutout'), 'inputs'),
-    'pyro': (1, _pyro_operation, 'inputs'),
+    'pyro': (1, _pyro_operation, 'pyro'),
     'noise_warp': (1, _noise_warp_operation, 'explicit'),
     'add': (2, _binary_operation('add'), 'explicit'),
     'subtract': (2, _binary_operation('subtract'), 'explicit'),
@@ -612,6 +615,16 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
         if policy == 'explicit':
             lo, hi = _bounds(prim, scale)
             field = _clip_field(field, lo, hi)
+        elif policy == 'pyro':
+            if _custom(prim, 'usePyroBounds', False):
+                lo, hi = _bounds(prim, scale)
+                field = _clip_field(field, lo, hi)
+            else:
+                # An estimate, not a mathematical bound for arbitrary fields.
+                amplitude = float(_custom(prim, 'amplitude', 0.25)) * scale
+                padding = 4.0 * max(amplitude, 0.0)
+                lo = tuple(x - padding for x in inputs[0].bounds_min)
+                hi = tuple(x + padding for x in inputs[0].bounds_max)
         elif policy == 'inputs':
             lo = tuple(min(obj.bounds_min[i] for obj in inputs) for i in range(3))
             hi = tuple(max(obj.bounds_max[i] for obj in inputs) for i in range(3))

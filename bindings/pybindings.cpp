@@ -197,6 +197,9 @@ PYBIND11_MODULE(physics_vfx, module)
         .def("get_value", [](const FloatGridHandle& g, int x, int y, int z) {
             return g.grid->getConstAccessor().getValue(openvdb::Coord(x, y, z));
         })
+        .def_property_readonly("voxel_size", [](const FloatGridHandle& g) {
+            return g.grid->transform().voxelSize().x();
+        })
         .def("active_world_bounds", [](const FloatGridHandle& g) -> py::object {
             if (g.grid->activeVoxelCount() == 0) return py::none();
             auto bbox = g.grid->evalActiveVoxelBoundingBox();
@@ -510,6 +513,18 @@ PYBIND11_MODULE(physics_vfx, module)
         return ColorGridHandle{stamp_grid_parallel<Color>(voxel_size, GridTypes<Color>::to_grid(background),
             [field](const Vector& p) { return field->eval(p); }, [](const Color&) { return true; }, bounds, filename)};
     }, py::arg("voxel_size"), py::arg("background"), py::arg("field"), py::arg("bounds"), py::arg("filename") = "");
+    module.def("load_float_grid", [](const std::string& filename) {
+        openvdb::initialize();
+        openvdb::io::File file(filename);
+        file.open();
+        auto grids = file.getGrids();
+        file.close();
+        if (!grids || grids->size() != 1)
+            throw std::runtime_error("Expected exactly one grid in cache: " + filename);
+        auto grid = openvdb::gridPtrCast<openvdb::FloatGrid>((*grids)[0]);
+        if (!grid) throw std::runtime_error("Expected a float grid in cache: " + filename);
+        return FloatGridHandle{grid};
+    }, py::arg("filename"));
     module.def("save_to_disk", [](const FloatGridHandle& grid, std::string filename) { save_to_disk(grid.grid, filename); }, py::arg("grid"), py::arg("filename"));
     module.def("save_to_disk", [](const ColorGridHandle& grid, std::string filename) { save_to_disk(grid.grid, filename); }, py::arg("grid"), py::arg("filename"));
     module.def("trilinear_deposit", [](FloatGridHandle& grid, const Vector& position, float value) {

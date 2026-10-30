@@ -36,6 +36,17 @@ class WispBindingTests(unittest.TestCase):
         self.assertEqual(values, [second.get_value(x, y, z) for x in range(-10, 11)
                                   for y in range(-10, 11) for z in range(-10, 11)])
 
+    def test_float_grid_cache_round_trip(self):
+        grid = fx.FloatGrid(0.25, 0)
+        grid.set_value(1, 2, 3, -0.75)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'wisp.vdb')
+            fx.save_to_disk(grid, path)
+            restored = fx.load_float_grid(path)
+            self.assertAlmostEqual(restored.get_value(1, 2, 3), -0.75)
+            self.assertAlmostEqual(restored.voxel_size, 0.25)
+            self.assertEqual(restored.active_world_bounds(), grid.active_world_bounds())
+
 
 @unittest.skipUnless(HAS_USD, 'requires OpenUSD and the built physics_vfx module')
 class WispUSDTests(unittest.TestCase):

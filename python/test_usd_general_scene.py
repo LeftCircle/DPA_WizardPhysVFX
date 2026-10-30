@@ -78,7 +78,8 @@ class GeneralSceneTests(unittest.TestCase):
         self.assertAlmostEqual(cut.rgb[2], 0.05)
 
     def test_showcase_operations_and_wisps(self):
-        scene = loader.load_scene(SCENE.parent / 'showcase_operations.usda')
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = loader.load_scene(SCENE.parent / 'showcase_operations.usda', cache_dir=tmp)
         self.assertEqual({o.kind for o in scene.objects},
                          {'union', 'intersection', 'cutout', 'add', 'subtract',
                           'pyro', 'noise_warp', 'wisp'})

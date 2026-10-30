@@ -442,3 +442,36 @@ using `pbvfx:normal` (default `(0, 1, 0)`). It requires `pbvfx:boundsMin` and
 control the noise; it also requires explicit bounds, which clip the result.
 Frequency is cycles per stage unit and amplitude is in stage units. Since the
 input plane is itself clipped, its bounds should cover the displaced surface.
+
+## Named stamp caches
+
+Add `custom string pbvfx:cacheName = "my_stamp"` to a USD prim to reuse its
+stamped OpenVDB grid across runs. Analytic and operation prims must also set
+`custom bool pbvfx:stamp = true`. Wisps and meshes already produce grids, so
+they use the name without needing that flag. If a mesh also requests a stamp,
+the cache stores the final resampled grid. Without a cache name, a stamp is
+computed every time and no cache file is created. Render-time deep shadow maps
+are generated per light and are not covered by these per-prim caches.
+
+The loader writes `<name>.vdb` to `cache/` relative to the current working
+directory and loads it on subsequent runs. Names must be unique among cached
+prims in a stage and use letters, digits, `_`, `-`, or `.`, beginning with a
+letter or digit. Cache writes are atomic. The showcase assigns names to one
+sphere and one wisp; the other stamps remain uncached.
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python python/usd_sphere_scene.py \
+  python/inputs/showcase_operations.usda --output outputs/showcase.exr \
+  --cache-dir outputs/stamp_cache
+```
+
+Python callers can use `load_scene(path, cache_dir="outputs/stamp_cache")`.
+`SceneObject.cache_hit` records whether the grid was loaded from cache.
+`physics_vfx.load_float_grid(path)` also reads a single-float-grid VDB file.
+
+The name is the cache key: the loader does **not** detect changes to geometry,
+transforms, operation inputs, voxel size, or wisp settings. Delete the relevant
+`.vdb`, use a new name, or choose a different cache directory after such a
+change. Use separate cache directories for unrelated scenes to avoid reusing a
+name for different content. A corrupt or incompatible cache raises an error;
+remove it to regenerate the stamp.

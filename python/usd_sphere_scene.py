@@ -1,6 +1,9 @@
 """Translate USD stages into PhysVFX settings, cameras, lights and fields."""
 import argparse
 import math
+import os
+import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -200,6 +203,7 @@ class SceneObject:
     bounds_max: tuple = None
     stamped: bool = False
     is_density: bool = False
+    cache_hit: bool = False
 
 
 def _display_color(prim):
@@ -311,15 +315,75 @@ def get_isf_object(prim, cache, unit_scale):
                        center, radius_world, bounds_min, bounds_max)
 
 
-def get_mesh_object(prim, settings, volume_meters_per_unit=1.0):
-    """Convert a USD Mesh prim into a colored grid-backed scalar field."""
+class StampCache:
+    """Named VDB caches; names are explicit keys and are not auto-invalidated."""
+    def __init__(self, directory):
+        self.directory = Path(directory)
+        self.owners = {}
+
+    def path_for(self, prim):
+        name = _custom(prim, 'cacheName', None)
+        if name is None or name == '':
+            return None
+        if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', name):
+            raise ValueError(f'{prim.GetPath()}: invalid pbvfx:cacheName')
+        path = str(prim.GetPath())
+        if name in self.owners and self.owners[name] != path:
+            raise ValueError(f'{path}: duplicate pbvfx:cacheName {name!r}')
+        self.owners[name] = path
+        return self.directory / (name + '.vdb')
+
+    def load(self, prim):
+        path = self.path_for(prim)
+        return fx.load_float_grid(str(path)) if path is not None and path.exists() else None
+
+    def save(self, prim, grid):
+        path = self.path_for(prim)
+        if path is None:
+            return
+        self.directory.mkdir(parents=True, exist_ok=True)
+        fd, temp = tempfile.mkstemp(prefix='.stamp-', suffix='.vdb', dir=self.directory)
+        os.close(fd)
+        try:
+            fx.save_to_disk(grid, temp)
+            os.replace(temp, path)
+        finally:
+            if os.path.exists(temp):
+                os.unlink(temp)
+
+
+def _include_grid_bounds(item, grid):
+    bounds = grid.active_world_bounds()
+    if bounds is not None:
+        pad = grid.voxel_size
+        item.bounds_min = tuple(min(item.bounds_min[i], bounds[0][i] - pad) for i in range(3))
+        item.bounds_max = tuple(max(item.bounds_max[i], bounds[1][i] + pad) for i in range(3))
+
+
+def get_mesh_object(prim, settings, volume_meters_per_unit=1.0, stamp_cache=None):
+    """Convert a USD Mesh to a grid-backed field, optionally reusing a cache."""
     from usd_mesh import mesh_prim_to_field, mesh_world_bounds
     half_width = _positive(_custom(prim, 'meshHalfWidth', 3.0), 'pbvfx:meshHalfWidth')
-    field = mesh_prim_to_field(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
+    name = _custom(prim, 'cacheName', None)
+    grid = stamp_cache.load(prim) if stamp_cache and name else None
+    hit = grid is not None
+    if hit:
+        field = fx.make_grid_field(grid)
+    elif stamp_cache and name:
+        from usd_mesh import mesh_prim_to_grid
+        grid = mesh_prim_to_grid(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
+        field = fx.make_grid_field(grid)
+        if not _custom(prim, 'stamp', False):
+            stamp_cache.save(prim, grid)
+    else:
+        field = mesh_prim_to_field(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
     rgb = _display_color(prim)
     bounds_min, bounds_max = mesh_world_bounds(prim, volume_meters_per_unit)
-    return SceneObject(str(prim.GetPath()), 'mesh', field, fx.Color(*rgb, 0), rgb,
-                       bounds_min=bounds_min, bounds_max=bounds_max)
+    item = SceneObject(str(prim.GetPath()), 'mesh', field, fx.Color(*rgb, 0), rgb,
+                       bounds_min=bounds_min, bounds_max=bounds_max, cache_hit=hit)
+    if hit:
+        _include_grid_bounds(item, grid)
+    return item
 
 
 def _bounds(prim, scale):
@@ -353,7 +417,7 @@ def get_plane_object(prim, cache, scale):
                        bounds_min=lo, bounds_max=hi)
 
 
-def get_wisp_object(prim, cache, settings, unit_scale):
+def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
     """Create a seeded wisp density grid in local coordinates."""
     if _custom(prim, 'field_type', None) != 'wisp':
         return None
@@ -376,11 +440,18 @@ def get_wisp_object(prim, cache, settings, unit_scale):
     seed = int(_custom(prim, 'wispSeed', 1))
     displacement = _fxvec(_vec(_custom(prim, 'wispDisplacement', (1, 1, 1))))
     voxel = _positive(settings.density_voxel_size, 'density voxel size') / unit_scale
-    grid = fx.FloatGrid(voxel, 0.0)
-    wisp = fx.wisp_uniform(dots, -density, clump, pscale, noise('wispNoise1'),
-                           noise('wispNoise2'), displacement, fx.Vector(0, 0, 0),
-                           fx.CoordinateSys(), seed, fx.Color(1, 1, 1, 1), minimum, maximum)
-    wisp.stamp(grid)
+    grid = stamp_cache.load(prim) if stamp_cache else None
+    hit = grid is not None
+    if not hit:
+        grid = fx.FloatGrid(voxel, 0.0)
+        wisp = fx.wisp_uniform(dots, -density, clump, pscale, noise('wispNoise1'),
+                               noise('wispNoise2'), displacement, fx.Vector(0, 0, 0),
+                               fx.CoordinateSys(), seed, fx.Color(1, 1, 1, 1), minimum, maximum)
+        wisp.stamp(grid)
+        if stamp_cache:
+            stamp_cache.save(prim, grid)
+    else:
+        voxel = grid.voxel_size
     bounds = grid.active_world_bounds()
     if bounds is None:
         raise ValueError(f'{prim.GetPath()}: wisp generated an empty grid')
@@ -395,15 +466,25 @@ def get_wisp_object(prim, cache, settings, unit_scale):
     field = _world_to_local(fx.make_grid_field(grid), matrix, unit_scale, prim.GetPath())
     rgb = _display_color(prim)
     return SceneObject(str(prim.GetPath()), 'wisp', field, fx.Color(*rgb, 0), rgb,
-                       bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True)
+                       bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit)
 
 
-def _prepare_object(prim, item, settings):
+def _prepare_object(prim, item, settings, stamp_cache=None):
     """Optionally sample an object field into its own world-space grid."""
     stamp = _custom(prim, 'stamp', False)
     if not isinstance(stamp, bool):
         raise ValueError(f'{prim.GetPath()}: pbvfx:stamp must be a bool')
     if stamp and not item.is_density:
+        if item.cache_hit:
+            item.stamped = True
+            return item
+        grid = stamp_cache.load(prim) if stamp_cache else None
+        if grid is not None:
+            item.field = fx.make_grid_field(grid)
+            item.stamped = True
+            item.cache_hit = True
+            _include_grid_bounds(item, grid)
+            return item
         voxel_size = _positive(settings.density_voxel_size, 'density voxel size')
         padding = 2.0 * voxel_size
         lo = tuple(x - padding for x in item.bounds_min)
@@ -412,6 +493,8 @@ def _prepare_object(prim, item, settings):
         grid = fx.stamp_grid_parallel(voxel_size, 3.0 * voxel_size, item.field, bounds)
         item.field = fx.make_grid_field(grid)
         item.stamped = True
+        if stamp_cache:
+            stamp_cache.save(prim, grid)
     return item
 
 
@@ -466,13 +549,19 @@ FIELD_OPERATIONS.update({
 })
 
 
-def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
+def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="cache"):
     """Resolve geometry and operation relationships; return unconsumed roots."""
     scale = _unit_scale(stage, volume_meters_per_unit)
     cache = UsdGeom.XformCache(Usd.TimeCode.Default())
+    stamp_cache = StampCache(cache_dir)
     prims = list(stage.Traverse())
     operations = {}
     objects = {}
+    # Reject ambiguous names before creating any cache files.
+    for prim in prims:
+        if (_custom(prim, 'field_type', None) == 'wisp' or
+            prim.IsA(UsdGeom.Mesh) or _custom(prim, 'stamp', False) is True):
+            stamp_cache.path_for(prim)
     for prim in prims:
         path = str(prim.GetPath())
         op = _custom(prim, 'operation', None)
@@ -485,17 +574,17 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
         if field_type and _custom(prim, 'isf_type', None) is not None:
             raise ValueError(f'{path}: choose either pbvfx:field_type or pbvfx:isf_type')
         if field_type == 'wisp':
-            item = get_wisp_object(prim, cache, settings, scale)
+            item = get_wisp_object(prim, cache, settings, scale, stamp_cache)
         elif field_type == 'plane':
             item = get_plane_object(prim, cache, scale)
         else:
             item = get_isf_object(prim, cache, scale)
         if item is None and prim.IsA(UsdGeom.Mesh):
-            item = get_mesh_object(prim, settings, volume_meters_per_unit)
+            item = get_mesh_object(prim, settings, volume_meters_per_unit, stamp_cache)
         elif item is None and prim.IsA(UsdGeom.Gprim):
             raise ValueError(f'{path}: untagged geometry must be a USD Mesh')
         if item is not None:
-            objects[path] = _prepare_object(prim, item, settings)
+            objects[path] = _prepare_object(prim, item, settings, stamp_cache)
 
     consumed, active = set(), set()
 
@@ -531,7 +620,7 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
                                       prim.GetAttribute('pbvfx:color')) else inputs[0].rgb
         item = SceneObject(path, name, field, fx.Color(*rgb, 0), rgb,
                            bounds_min=lo, bounds_max=hi)
-        objects[path] = _prepare_object(prim, item, settings)
+        objects[path] = _prepare_object(prim, item, settings, stamp_cache)
         return objects[path]
 
     for path in operations:
@@ -584,7 +673,7 @@ class Scene:
                             self.settings, _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename))
 
 
-def load_scene(filename, volume_meters_per_unit=1.0):
+def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache"):
     """Return PhysVFX components and combined fields for a USD stage."""
     stage = Usd.Stage.Open(str(filename))
     if not stage:
@@ -592,7 +681,7 @@ def load_scene(filename, volume_meters_per_unit=1.0):
     camera = get_camera_info(stage, volume_meters_per_unit)
     settings = get_render_settings(stage, volume_meters_per_unit, camera)
     lights = get_lights(stage, settings, volume_meters_per_unit)
-    objects = get_scene_objects(stage, settings, volume_meters_per_unit)
+    objects = get_scene_objects(stage, settings, volume_meters_per_unit, cache_dir)
     if not objects:
         raise ValueError('No tagged ISFs or USD meshes found')
     sdf = objects[0].field
@@ -614,11 +703,12 @@ def main(argv=None):
     parser.add_argument('scene', help='USD scene (.usd, .usda or .usdc)')
     parser.add_argument('--output', required=True, help='Output image path, e.g. sphere.exr')
     parser.add_argument('--volume-meters-per-unit', type=float, default=1.0)
+    parser.add_argument('--cache-dir', default='cache', help='Directory for named stamp caches (default: cache)')
     args = parser.parse_args(argv)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        load_scene(args.scene, args.volume_meters_per_unit).render(output)
+        load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir).render(output)
     except (ValueError, RuntimeError) as exc:
         parser.exit(1, f'error: {exc}\n')
     print(f'Wrote {output}')

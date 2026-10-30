@@ -333,6 +333,102 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(seen[0][1][0], 'noise')
         self.assertEqual(scene.objects[0].bounds_min, (-1, -1, -1))
 
+    def test_named_stamp_is_reused_and_unnamed_stamp_is_not_cached(self):
+        module, sphere, _, _, _, _ = fixture()
+        sphere.values.update({'pbvfx:stamp': True, 'pbvfx:cacheName': 'sphere_cache'})
+        events = []
+        class Grid:
+            voxel_size = 0.1
+            def active_world_bounds(self): return ((0, -1, -3), (4, 3, 2))
+        grid = Grid()
+        module.fx.world_space_to_bounds = lambda *args: args
+        module.fx.stamp_grid_parallel = lambda *args: events.append('stamp') or grid
+        module.fx.make_grid_field = lambda value: ('grid_field', value)
+        module.fx.save_to_disk = lambda value, path: (events.append('save'), Path(path).write_text('grid'))
+        module.fx.load_float_grid = lambda path: events.append('load') or grid
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / 'caches'
+            first = module.load_scene('scene', cache_dir=cache)
+            self.assertFalse(first.objects[0].cache_hit)
+            self.assertEqual(events, ['stamp', 'save'])
+            self.assertTrue((cache / 'sphere_cache.vdb').is_file())
+            second = module.load_scene('scene', cache_dir=cache)
+            self.assertTrue(second.objects[0].cache_hit)
+            self.assertEqual(events, ['stamp', 'save', 'load'])
+            sphere.values.pop('pbvfx:cacheName')
+            other = Path(tmp) / 'unnamed'
+            module.load_scene('scene', cache_dir=other)
+            self.assertFalse(other.exists())
+            self.assertEqual(events[-1], 'stamp')
+
+    def test_cache_rejects_duplicate_and_invalid_names(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        sphere.values.update({'pbvfx:stamp': True, 'pbvfx:cacheName': 'same'})
+        other = Prim(Sphere, '/second', {'pbvfx:isf_type': 'isf_sphere', 'Radius': 1,
+                     'pbvfx:stamp': True, 'pbvfx:cacheName': 'same'})
+        stage.Traverse = lambda: original + [other]
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, 'duplicate'):
+                module.load_scene('scene', cache_dir=tmp)
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+            sphere.values['pbvfx:cacheName'] = '../unsafe'
+            with self.assertRaisesRegex(ValueError, 'invalid pbvfx:cacheName'):
+                module.load_scene('scene', cache_dir=tmp)
+
+    def test_wisp_cache_skips_generation(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        prim = Prim(None, '/wisp', {'pbvfx:field_type': 'wisp', 'pbvfx:cacheName': 'wisp'})
+        stage.Traverse = lambda: original + [prim]
+        events = []
+        class Grid:
+            voxel_size = 0.1
+            def __init__(self, *args): pass
+            def active_world_bounds(self): return ((-1, -1, -1), (1, 1, 1))
+        class Wisp:
+            def __init__(self, *args): events.append('construct')
+            def stamp(self, grid): events.append('stamp')
+        module.fx.FloatGrid, module.fx.wisp_uniform = Grid, Wisp
+        module.fx.FSVals = lambda *args: args
+        module.fx.CoordinateSys = lambda: 'axes'
+        module.fx.make_grid_field = lambda value: ('grid', value)
+        module.fx.save_to_disk = lambda value, path: (events.append('save'), Path(path).write_text('grid'))
+        module.fx.load_float_grid = lambda path: events.append('load') or Grid()
+        with tempfile.TemporaryDirectory() as tmp:
+            first = module.load_scene('scene', cache_dir=tmp)
+            second = module.load_scene('scene', cache_dir=tmp)
+            self.assertFalse(first.objects[1].cache_hit)
+            self.assertTrue(second.objects[1].cache_hit)
+            self.assertEqual(events, ['construct', 'stamp', 'save', 'load'])
+
+    def test_named_mesh_cache_skips_voxelization(self):
+        module, _, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        prim = Prim(Mesh, '/mesh', {'pbvfx:cacheName': 'mesh'})
+        stage.Traverse = lambda: original + [prim]
+        events = []
+        class Grid:
+            voxel_size = 0.1
+            def active_world_bounds(self): return ((-1, -1, -1), (1, 1, 1))
+        grid = Grid()
+        fake = ModuleType('usd_mesh')
+        fake.mesh_prim_to_field = lambda *args: self.fail('unexpected uncached mesh path')
+        fake.mesh_prim_to_grid = lambda *args: events.append('voxelize') or grid
+        fake.mesh_world_bounds = lambda *args: ((-1, -1, -1), (1, 1, 1))
+        module.fx.make_grid_field = lambda value: ('grid', value)
+        module.fx.save_to_disk = lambda value, path: (events.append('save'), Path(path).write_text('grid'))
+        module.fx.load_float_grid = lambda path: events.append('load') or grid
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'usd_mesh': fake}):
+            first = module.load_scene('scene', cache_dir=tmp)
+            second = module.load_scene('scene', cache_dir=tmp)
+            self.assertFalse(first.objects[1].cache_hit)
+            self.assertTrue(second.objects[1].cache_hit)
+            self.assertEqual(events, ['voxelize', 'save', 'load'])
+
     def test_unknown_tags_and_untagged_primitives_are_rejected(self):
         module, sphere, _, _, _, _ = fixture()
         sphere.values['pbvfx:isf_type'] = 'not_a_type'

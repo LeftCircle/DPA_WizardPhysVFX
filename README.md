@@ -360,3 +360,61 @@ Use the `explicit` bounds policy and author the bounds above unless the
 operation is guaranteed to remain within the union of its input bounds; use
 `inputs` only with that guarantee. This is an extension point for arbitrary
 Python field operations, not unrestricted execution of names from USD.
+
+## Wisps in Python and USD
+
+`wisp_uniform` (also exposed as `UniformWisp`) creates a seeded generator.
+Its `stamp` method deposits dots into a `FloatGrid`; use a negative density
+for the renderer's density convention. `CoordinateSys` exposes the generator's
+`t`, `n`, and `b` basis vectors, and `FSVals` controls the two noise fields.
+`FloatGrid.active_world_bounds()` returns the active voxel bounds or `None`.
+
+```python
+import physics_vfx as fx
+
+origin = fx.Vector(0, 0, 0)
+noise = fx.FSVals(0.5, 2, origin, 1, 2)
+grid = fx.FloatGrid(0.1, 0)
+wisp = fx.wisp_uniform(100000, -1, 1, 1, noise, noise,
+                       fx.Vector(1, 1, 1), origin, fx.CoordinateSys(), 11)
+wisp.stamp(grid)
+density = fx.make_grid_field(grid)
+```
+
+A USD prim tagged `custom token pbvfx:field_type = "wisp"` generates its
+own grid at scene load time. See [`python/inputs/wisps.usda`](python/inputs/wisps.usda):
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python python/usd_sphere_scene.py \
+  python/inputs/wisps.usda --output outputs/wisps.exr
+```
+
+The prim's composed world transform places the local grid. Its active voxels
+and transform determine render bounds. The render setting `pbvfx:densityVoxelSize`
+sets the local grid spacing in stage units before the prim transform; scaling
+the prim scales the resulting voxels. The wisp is already grid-backed, so
+`pbvfx:stamp` does not cause another resampling. Wisp density magnitudes are
+preserved in the final density union, using the minimum of overlapping negative
+fields; this is not additive blending. A wisp can be referenced by an operation,
+but an operation result is interpreted as an implicit field and converted to a
+binary density mask, so its original density magnitudes are not retained.
+
+Wisp attributes and defaults:
+
+- `pbvfx:wispDots` (100000), `wispDensity` (1, positive deposit magnitude),
+  `wispClump` (1), `wispPscale` (1), and `wispSeed` (1).
+- `pbvfx:wispMin` (-1), `wispMax` (1), and `wispDisplacement` ((1, 1, 1))
+  configure local sampling and displacement.
+- `pbvfx:wispNoise1Roughness` / `wispNoise2Roughness` (0.5),
+  `wispNoise1Octaves` / `wispNoise2Octaves` (2),
+  `wispNoise1Frequency` / `wispNoise2Frequency` (1),
+  `wispNoise1FrequencyJump` / `wispNoise2FrequencyJump` (1), and
+  `wispNoise1Translation` / `wispNoise2Translation` ((0, 0, 0)) control the
+  two fractal noise fields. All attributes have the `pbvfx:` prefix.
+- `primvars:displayColor` or `pbvfx:color` controls the object's color.
+
+Run the binding and USD loader tests with:
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python -m unittest test_wisps -v
+```

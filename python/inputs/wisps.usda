@@ -1,0 +1,53 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "World"
+{
+    def Camera "Camera"
+    {
+        float focalLength = 28
+        float horizontalAperture = 20.955
+        float verticalAperture = 11.7871875
+        float2 clippingRange = (0.1, 60)
+        double3 xformOp:translate = (0, 0, 30)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def SphereLight "Light"
+    {
+        color3f inputs:color = (1, 1, 1)
+        float inputs:intensity = 4
+        double3 xformOp:translate = (0, 8, 15)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def RenderSettings "Settings"
+    {
+        rel camera = </World/Camera>
+        uniform int2 resolution = (960, 540)
+        custom float pbvfx:minStep = 0.03
+        custom float pbvfx:maxStep = 0.06
+        custom float pbvfx:shadowStep = 0.08
+        custom float pbvfx:densityVoxelSize = 0.1
+        custom float pbvfx:colorVoxelSize = 0.1
+        custom float pbvfx:shadowVoxelSize = 0.2
+    }
+    def Xform "Wisp"
+    {
+        custom token pbvfx:field_type = "wisp"
+        custom int pbvfx:wispDots = 100000
+        custom float pbvfx:wispDensity = 1
+        custom float pbvfx:wispClump = 1
+        custom float pbvfx:wispPscale = 2
+        custom int pbvfx:wispSeed = 11
+        custom float pbvfx:wispMin = -3
+        custom float pbvfx:wispMax = 3
+        custom float pbvfx:wispNoise1Octaves = 2
+        custom float pbvfx:wispNoise1Frequency = 0.5
+        custom float pbvfx:wispNoise2Frequency = 0.5
+        custom float3 pbvfx:wispDisplacement = (1, 1, 1)
+        custom color3f pbvfx:color = (1, 0.4, 0.1)
+    }
+}

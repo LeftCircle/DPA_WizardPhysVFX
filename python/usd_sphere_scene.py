@@ -199,6 +199,7 @@ class SceneObject:
     bounds_min: tuple = None
     bounds_max: tuple = None
     stamped: bool = False
+    is_density: bool = False
 
 
 def _display_color(prim):
@@ -321,12 +322,57 @@ def get_mesh_object(prim, settings, volume_meters_per_unit=1.0):
                        bounds_min=bounds_min, bounds_max=bounds_max)
 
 
+def get_wisp_object(prim, cache, settings, unit_scale):
+    """Create a seeded wisp density grid in local coordinates."""
+    if _custom(prim, 'field_type', None) != 'wisp':
+        return None
+    dots = int(_custom(prim, 'wispDots', 100000))
+    if dots <= 0 or dots > 2147483647:
+        raise ValueError(f'{prim.GetPath()}: pbvfx:wispDots must be between 1 and 2147483647')
+    density = _positive(_custom(prim, 'wispDensity', 1.0), 'pbvfx:wispDensity')
+    clump = _positive(_custom(prim, 'wispClump', 1.0), 'pbvfx:wispClump')
+    pscale = _positive(_custom(prim, 'wispPscale', 1.0), 'pbvfx:wispPscale')
+    minimum = float(_custom(prim, 'wispMin', -1.0))
+    maximum = float(_custom(prim, 'wispMax', 1.0))
+    if not math.isfinite(minimum) or not math.isfinite(maximum) or minimum >= maximum:
+        raise ValueError(f'{prim.GetPath()}: invalid wisp sampling range')
+    def noise(prefix):
+        return fx.FSVals(_positive(_custom(prim, prefix + 'Roughness', 0.5), prefix + 'Roughness', allow_zero=True),
+                         _positive(_custom(prim, prefix + 'Octaves', 2.0), prefix + 'Octaves'),
+                         _fxvec(_vec(_custom(prim, prefix + 'Translation', (0, 0, 0)))),
+                         _positive(_custom(prim, prefix + 'Frequency', 1.0), prefix + 'Frequency'),
+                         _positive(_custom(prim, prefix + 'FrequencyJump', 1.0), prefix + 'FrequencyJump'))
+    seed = int(_custom(prim, 'wispSeed', 1))
+    displacement = _fxvec(_vec(_custom(prim, 'wispDisplacement', (1, 1, 1))))
+    voxel = _positive(settings.density_voxel_size, 'density voxel size') / unit_scale
+    grid = fx.FloatGrid(voxel, 0.0)
+    wisp = fx.wisp_uniform(dots, -density, clump, pscale, noise('wispNoise1'),
+                           noise('wispNoise2'), displacement, fx.Vector(0, 0, 0),
+                           fx.CoordinateSys(), seed, fx.Color(1, 1, 1, 1), minimum, maximum)
+    wisp.stamp(grid)
+    bounds = grid.active_world_bounds()
+    if bounds is None:
+        raise ValueError(f'{prim.GetPath()}: wisp generated an empty grid')
+    lo, hi = bounds
+    matrix = cache.GetLocalToWorldTransform(prim)
+    corners = [_vec(matrix.Transform(Gf.Vec3d(x, y, z)), unit_scale)
+               for x in (lo[0] - voxel, hi[0] + voxel)
+               for y in (lo[1] - voxel, hi[1] + voxel)
+               for z in (lo[2] - voxel, hi[2] + voxel)]
+    bounds_min = tuple(min(p[i] for p in corners) for i in range(3))
+    bounds_max = tuple(max(p[i] for p in corners) for i in range(3))
+    field = _world_to_local(fx.make_grid_field(grid), matrix, unit_scale, prim.GetPath())
+    rgb = _display_color(prim)
+    return SceneObject(str(prim.GetPath()), 'wisp', field, fx.Color(*rgb, 0), rgb,
+                       bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True)
+
+
 def _prepare_object(prim, item, settings):
     """Optionally sample an object field into its own world-space grid."""
     stamp = _custom(prim, 'stamp', False)
     if not isinstance(stamp, bool):
         raise ValueError(f'{prim.GetPath()}: pbvfx:stamp must be a bool')
-    if stamp:
+    if stamp and not item.is_density:
         voxel_size = _positive(settings.density_voxel_size, 'density voxel size')
         padding = 2.0 * voxel_size
         lo = tuple(x - padding for x in item.bounds_min)
@@ -389,7 +435,13 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
         if op is not None:
             operations[path] = (prim, str(op))
             continue
-        item = get_isf_object(prim, cache, scale)
+        field_type = _custom(prim, 'field_type', None)
+        if field_type is not None and field_type != 'wisp':
+            raise ValueError(f'{path}: unknown pbvfx:field_type {field_type!r}')
+        if field_type and _custom(prim, 'isf_type', None) is not None:
+            raise ValueError(f'{path}: choose either pbvfx:field_type or pbvfx:isf_type')
+        item = (get_wisp_object(prim, cache, settings, scale) if field_type == 'wisp'
+                else get_isf_object(prim, cache, scale))
         if item is None and prim.IsA(UsdGeom.Mesh):
             item = get_mesh_object(prim, settings, volume_meters_per_unit)
         elif item is None and prim.IsA(UsdGeom.Gprim):
@@ -502,7 +554,10 @@ def load_scene(filename, volume_meters_per_unit=1.0):
     sdf = objects[0].field
     for obj in objects[1:]:
         sdf = fx.union_fields(sdf, obj.field)
-    density = fx.negate(fx.mask(sdf))
+    densities = [obj.field if obj.is_density else fx.negate(fx.mask(obj.field)) for obj in objects]
+    density = densities[0]
+    for field in densities[1:]:
+        density = fx.union_fields(density, field)
     color = fx.make_scene_color_field([obj.field for obj in objects], [obj.color for obj in objects])
     padding = 3 * max(settings.density_voxel_size, settings.color_voxel_size, settings.shadow_voxel_size)
     bounds_min = tuple(min(obj.bounds_min[i] for obj in objects) - padding for i in range(3))

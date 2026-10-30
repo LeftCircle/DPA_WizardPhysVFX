@@ -209,7 +209,7 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(scene.objects[1].field[0], 'transformed')
         self.assertEqual(scene.objects[1].field[2], (-1, 0, 0))
         self.assertEqual(len(scene.lights), 1)
-        self.assertEqual(scene.density[0], 'negate')
+        self.assertEqual(scene.density[0], 'union')
         self.assertEqual(scene.color[0], 'color')
         scene.render('mixed.exr')
         self.assertEqual(calls[0][0], scene.density)
@@ -279,6 +279,36 @@ class TranslationTests(unittest.TestCase):
         scene = module.load_scene('scene')
         self.assertEqual(scene.objects[0].bounds_min, (-5, -5, -5))
         self.assertEqual(scene.sdf[0], 'add')
+
+    def test_wisp_uses_density_and_transformed_grid_bounds(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        prim = Prim(None, '/wisp', {'pbvfx:field_type': 'wisp', 'pbvfx:wispDots': 10,
+                                  'pbvfx:wispDensity': 2}, Matrix((10, 0, 0)))
+        stage.Traverse = lambda: original + [prim]
+        calls = []
+        class Grid:
+            def __init__(self, *args): calls.append(('grid', args))
+            def active_world_bounds(self): return ((-1, -1, -1), (1, 1, 1))
+        class Wisp:
+            def __init__(self, *args): calls.append(('wisp', args))
+            def stamp(self, grid): calls.append(('stamp', grid))
+        module.fx.FloatGrid, module.fx.wisp_uniform = Grid, Wisp
+        module.fx.FSVals = lambda *args: args
+        module.fx.CoordinateSys = lambda: 'axes'
+        module.fx.make_grid_field = lambda grid: ('grid_field', grid)
+        scene = module.load_scene('scene')
+        wisp = scene.objects[1]
+        self.assertTrue(wisp.is_density)
+        self.assertTrue(wisp.stamped)
+        self.assertEqual(calls[1][1][1], -2)
+        self.assertEqual(scene.density[2], wisp.field)
+        self.assertLess(wisp.bounds_min[0], 4.5)
+        self.assertGreater(wisp.bounds_max[0], 5.5)
+        prim.values['pbvfx:wispDots'] = 0
+        with self.assertRaisesRegex(ValueError, 'wispDots'):
+            module.load_scene('scene')
 
     def test_unknown_tags_and_untagged_primitives_are_rejected(self):
         module, sphere, _, _, _, _ = fixture()

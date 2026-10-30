@@ -19,6 +19,8 @@ ChatGPT mini
 #include "usd_scene_render.h"
 #include "Camera.h"
 #include "lights.h"
+#include "wisps.h"
+#include <limits>
 
 namespace py = pybind11;
 using namespace lux;
@@ -194,7 +196,45 @@ PYBIND11_MODULE(physics_vfx, module)
         })
         .def("get_value", [](const FloatGridHandle& g, int x, int y, int z) {
             return g.grid->getConstAccessor().getValue(openvdb::Coord(x, y, z));
+        })
+        .def("active_world_bounds", [](const FloatGridHandle& g) -> py::object {
+            if (g.grid->activeVoxelCount() == 0) return py::none();
+            auto bbox = g.grid->evalActiveVoxelBoundingBox();
+            auto lo = g.grid->indexToWorld(bbox.min());
+            auto hi = g.grid->indexToWorld(bbox.max());
+            return py::make_tuple(py::make_tuple(lo.x(), lo.y(), lo.z()),
+                                  py::make_tuple(hi.x(), hi.y(), hi.z()));
         });
+
+    py::class_<CoordinateSys>(module, "CoordinateSys")
+        .def(py::init<>())
+        .def_readwrite("t", &CoordinateSys::t)
+        .def_readwrite("n", &CoordinateSys::n)
+        .def_readwrite("b", &CoordinateSys::b);
+
+    using UniformWisp = decltype(wisp_uniform(size_t{}, 0, 0, 0, FSVals{}, FSVals{},
+                                              Vector{}, Vector{}, CoordinateSys{}, 0));
+    py::class_<UniformWisp>(module, "UniformWisp")
+        .def(py::init([](size_t dots, float density, float clump, float pscale,
+                         FSVals noise1, FSVals noise2, Vector displacement, Vector location,
+                         CoordinateSys axis, int seed, Color color, float min, float max) {
+            if (dots == 0 || dots > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+                !std::isfinite(density) || !std::isfinite(clump) || clump <= 0 ||
+                !std::isfinite(pscale) || pscale <= 0 || !std::isfinite(min) ||
+                !std::isfinite(max) || min >= max) {
+                throw py::value_error("invalid wisp parameters");
+            }
+            return wisp_uniform(dots, density, clump, pscale, noise1, noise2,
+                                displacement, location, axis, seed, color, min, max);
+        }), py::arg("n_dots"), py::arg("density"), py::arg("clump"), py::arg("pscale"),
+            py::arg("noise1"), py::arg("noise2"), py::arg("displacement"),
+            py::arg("location"), py::arg("axis"), py::arg("seed"),
+            py::arg("color") = Color(1, 1, 1, 1), py::arg("minimum") = -1.f,
+            py::arg("maximum") = 1.f)
+        .def("stamp", [](UniformWisp& w, FloatGridHandle& grid) {
+            w.stamp_wisp_dots<float>(grid.grid);
+        }, py::arg("grid"));
+    module.attr("wisp_uniform") = module.attr("UniformWisp");
 
     py::class_<ColorGridHandle>(module, "ColorGrid")
         .def(py::init([](float voxel_size) {

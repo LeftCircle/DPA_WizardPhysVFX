@@ -46,6 +46,9 @@ class GeneralSceneTests(unittest.TestCase):
     def test_scattered_objects_and_physvfx_components(self):
         scene = loader.load_scene(SCENE)
         self.assertEqual(len(scene.objects), 12)
+        self.assertTrue(next(o for o in scene.objects if o.kind == 'isf_sphere').stamped)
+        self.assertFalse(next(o for o in scene.objects if o.kind == 'isf_torus').stamped)
+        self.assertGreater(next(o for o in scene.objects if o.kind == 'isf_sphere').field.eval(fx.Vector(100, 100, 100)), 0)
         red = [o for o in scene.objects if o.kind != 'mesh']
         green = [o for o in scene.objects if o.kind == 'mesh']
         self.assertEqual({o.kind for o in red}, set(loader.ISF_TYPES))

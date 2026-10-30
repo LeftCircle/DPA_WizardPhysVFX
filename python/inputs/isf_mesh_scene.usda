@@ -37,6 +37,7 @@ def Xform "World"
     def Sphere "Sphere"
     {
         custom token pbvfx:isf_type = "isf_sphere"
+        custom bool pbvfx:stamp = true
         color3f[] primvars:displayColor = [(1, 0, 0)] (
             interpolation = "constant"
         )
@@ -46,6 +47,7 @@ def Xform "World"
     def Sphere "Torus"
     {
         custom token pbvfx:isf_type = "isf_torus"
+        custom bool pbvfx:stamp = false
         color3f[] primvars:displayColor = [(1, 0, 0)] (
             interpolation = "constant"
         )

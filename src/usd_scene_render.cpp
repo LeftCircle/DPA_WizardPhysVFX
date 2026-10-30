@@ -67,13 +67,7 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
     }
 
     openvdb::initialize();
-    const auto density_bounds = world_space_to_bounds(lo, hi, rs.get_density_vs());
-    const auto color_bounds = world_space_to_bounds(lo, hi, rs.get_color_vs());
     const auto shadow_bounds = world_space_to_bounds(lo, hi, rs.get_shadow_vs());
-    auto density_grid = stamp_isf_to_grid(rs.get_density_vs(), 0.0f, density, density_bounds);
-    auto color_grid = stamp_color_to_grid(color, color_bounds, rs.get_color_vs());
-    auto density_field = make_grid_field<float>(density_grid);
-    auto color_field = make_grid_field<Color>(color_grid);
 
     RayMarcher marcher;
     marcher.set_snear(rs.near_dist);
@@ -84,13 +78,13 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
     marcher.set_Tmin(0.001f);
     marcher.add_levelset(make_bounds_levelset(lo, hi, rs.get_density_vs()));
     for (const auto& light : lights) {
-        auto shadow = make_deep_shadow_map_parallel(density_field, rs.get_shadow_vs(),
+        auto shadow = make_deep_shadow_map_parallel(density, rs.get_shadow_vs(),
             shadow_bounds, light, rs.shadow_step, light.kappa);
         marcher.add_shadow_map(shadow, light.color);
     }
 
     ImageData image(rs.width, rs.height, 4);
-    marcher.ray_march_image(camera, image, density_field, color_field);
+    marcher.ray_march_image(camera, image, density, color);
     write_image(image, filename);
 }
 

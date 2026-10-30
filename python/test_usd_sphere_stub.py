@@ -215,6 +215,29 @@ class TranslationTests(unittest.TestCase):
         self.assertLess(scene.bounds_min[0], -10)
         self.assertGreater(scene.bounds_max[0], 10)
 
+    def test_object_stamping_before_union(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        other = Prim(Sphere, '/other', {'pbvfx:isf_type': 'isf_sphere', 'Radius': 1,
+                                      'pbvfx:stamp': False}, Matrix((12, 0, 0)))
+        sphere.values['pbvfx:stamp'] = True
+        stage.Traverse = lambda: original + [other]
+        stamps = []
+        module.fx.world_space_to_bounds = lambda lo, hi, size: (lo, hi, size)
+        module.fx.stamp_grid_parallel = lambda *args: stamps.append(args) or ('grid', args)
+        module.fx.make_grid_field = lambda grid: ('grid_field', grid)
+        scene = module.load_scene('scene')
+        self.assertEqual(len(stamps), 1)
+        self.assertTrue(scene.objects[0].stamped)
+        self.assertFalse(scene.objects[1].stamped)
+        self.assertEqual(scene.sdf, ('union', scene.objects[0].field, scene.objects[1].field))
+        self.assertEqual(scene.color[1], [obj.field for obj in scene.objects])
+        self.assertGreater(stamps[0][1], 0)
+        sphere.values['pbvfx:stamp'] = 'yes'
+        with self.assertRaisesRegex(ValueError, 'must be a bool'):
+            module.load_scene('scene')
+
     def test_unknown_tags_and_untagged_primitives_are_rejected(self):
         module, sphere, _, _, _, _ = fixture()
         sphere.values['pbvfx:isf_type'] = 'not_a_type'

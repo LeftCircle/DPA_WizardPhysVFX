@@ -198,6 +198,7 @@ class SceneObject:
     radius: float = None
     bounds_min: tuple = None
     bounds_max: tuple = None
+    stamped: bool = False
 
 
 def _display_color(prim):
@@ -320,6 +321,23 @@ def get_mesh_object(prim, settings, volume_meters_per_unit=1.0):
                        bounds_min=bounds_min, bounds_max=bounds_max)
 
 
+def _prepare_object(prim, item, settings):
+    """Optionally sample an object field into its own world-space grid."""
+    stamp = _custom(prim, 'stamp', False)
+    if not isinstance(stamp, bool):
+        raise ValueError(f'{prim.GetPath()}: pbvfx:stamp must be a bool')
+    if stamp:
+        voxel_size = _positive(settings.density_voxel_size, 'density voxel size')
+        padding = 2.0 * voxel_size
+        lo = tuple(x - padding for x in item.bounds_min)
+        hi = tuple(x + padding for x in item.bounds_max)
+        bounds = fx.world_space_to_bounds(_fxvec(lo), _fxvec(hi), voxel_size)
+        grid = fx.stamp_grid_parallel(voxel_size, 3.0 * voxel_size, item.field, bounds)
+        item.field = fx.make_grid_field(grid)
+        item.stamped = True
+    return item
+
+
 def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
     """Load tagged ISFs; untagged geometry is converted as a USD Mesh."""
     scale = _unit_scale(stage, volume_meters_per_unit)
@@ -328,9 +346,9 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0):
     for prim in stage.Traverse():
         item = get_isf_object(prim, cache, scale)
         if item is not None:
-            objects.append(item)
+            objects.append(_prepare_object(prim, item, settings))
         elif prim.IsA(UsdGeom.Mesh):
-            objects.append(get_mesh_object(prim, settings, volume_meters_per_unit))
+            objects.append(_prepare_object(prim, get_mesh_object(prim, settings, volume_meters_per_unit), settings))
         elif prim.IsA(UsdGeom.Gprim):
             raise ValueError(f'{prim.GetPath()}: untagged geometry must be a USD Mesh')
     return objects

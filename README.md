@@ -275,8 +275,16 @@ with `pbvfx:meshHalfWidth` (in voxels).
 
 A single `primvars:displayColor` value supplies each object's color; otherwise
 `pbvfx:color` or white is used. If fields overlap, the first object in stage
-traversal order supplies the color. `scene.render(path)` stamps the combined density and color fields into OpenVDB
-grids, builds a shadow map for each light, and writes an image. Render bounds
+traversal order supplies the color. Each prim can set `custom bool pbvfx:stamp = true`
+to sample its scalar field into a separate OpenVDB grid, using the render
+settings' density voxel size and padded object bounds. The default is `false`,
+which leaves analytic ISFs as fields. Meshes always require an initial OpenVDB
+level-set conversion; enabling `pbvfx:stamp` resamples that mesh field as well.
+The example scene uses both settings. Stamping approximates the field at voxel
+resolution; values outside its padded grid use a positive background. Objects
+are unioned after this optional conversion, and their fields determine both
+density and color. `scene.render(path)` evaluates those combined fields directly,
+builds a shadow map for each light, and writes an image. Render bounds
 are derived from the world-space mesh points and conservative ISF bounds, with
 padding for the voxel sizes. The bounding volume can be inspected through
 `scene.bounds_min` and `scene.bounds_max`; ISF bounds account for all supported

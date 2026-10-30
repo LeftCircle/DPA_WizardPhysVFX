@@ -238,6 +238,11 @@ def author_field(stage, v):
             _write_wisp(prim, v)
     _stamp(prim, v)
     _display_color(prim, v)
+    from .preview import author_preview
+    try:
+        author_preview(stage, prim, kind, v)
+    except ValueError as exc:
+        raise AuthoringError(str(exc)) from exc
     return prim
 
 

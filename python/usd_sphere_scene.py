@@ -554,7 +554,8 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
     scale = _unit_scale(stage, volume_meters_per_unit)
     cache = UsdGeom.XformCache(Usd.TimeCode.Default())
     stamp_cache = StampCache(cache_dir)
-    prims = list(stage.Traverse())
+    # Houdini viewport guides are geometry but are not renderer scene objects.
+    prims = [p for p in stage.Traverse() if not _custom(p, 'preview', False)]
     operations = {}
     objects = {}
     # Reject ambiguous names before creating any cache files.

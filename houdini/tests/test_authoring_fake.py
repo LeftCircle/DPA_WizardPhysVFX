@@ -38,7 +38,7 @@ class Prim:
         return self.attrs.setdefault(name, Attribute(name, typ))
     def CreateRelationship(self, name, custom=True): return self.rels.setdefault(name, Relationship())
     def IsA(self, cls):
-        if cls is Gprim: return self.type_name in ('Sphere', 'Mesh', 'Cube', 'Cone')
+        if cls is Gprim: return self.type_name in ('Sphere', 'Mesh', 'Cube', 'Cone', 'BasisCurves')
         return self.type_name == cls.type_name
 
 
@@ -59,8 +59,20 @@ class Schema:
             return lambda: self.prim.CreateRelationship(method[6:-3])
         raise AttributeError(method)
 
+class Sphere(Schema): type_name = 'Sphere'
 class Mesh(Schema): type_name = 'Mesh'
 class Gprim(Schema): pass
+class BasisCurves(Schema):
+    type_name = 'BasisCurves'
+    def SetWidthsInterpolation(self, value): pass
+class Imageable(Schema): pass
+class Matrix:
+    def GetDeterminant(self): return 1.0
+    def GetInverse(self): return self
+    def Transform(self, value): return value
+class XformCache:
+    def __init__(self, time): pass
+    def GetLocalToWorldTransform(self, prim): return Matrix()
 class Camera(Schema): type_name = 'Camera'
 class SphereLight(Schema): type_name = 'SphereLight'
 class LightAPI(Schema): pass
@@ -77,10 +89,13 @@ def fake_pxr():
     names = types.SimpleNamespace(**{x: x for x in
         ('Float', 'Float3', 'Point3f', 'Color3f', 'Color3fArray', 'Int', 'Bool', 'String', 'Token')})
     pxr.Sdf = types.SimpleNamespace(Path=Path, ValueTypeNames=names)
-    pxr.Gf = types.SimpleNamespace(Vec3f=lambda *x: tuple(x), Vec2f=lambda *x: tuple(x), Vec2i=lambda *x: tuple(x))
-    pxr.UsdGeom = types.SimpleNamespace(Mesh=Mesh, Gprim=Gprim, Camera=Camera,
+    pxr.Gf = types.SimpleNamespace(Vec3f=lambda *x: tuple(x), Vec3d=lambda *x: tuple(x), Vec2f=lambda *x: tuple(x), Vec2i=lambda *x: tuple(x))
+    pxr.Usd = types.SimpleNamespace(TimeCode=types.SimpleNamespace(Default=lambda: None))
+    pxr.UsdGeom = types.SimpleNamespace(Sphere=Sphere, Mesh=Mesh, Gprim=Gprim, Camera=Camera,
+                                       BasisCurves=BasisCurves, Imageable=Imageable, XformCache=XformCache,
                                        PrimvarsAPI=PrimvarsAPI,
-                                       Tokens=types.SimpleNamespace(constant='constant', perspective='perspective'))
+                                       Tokens=types.SimpleNamespace(constant='constant', perspective='perspective',
+                                                                    linear='linear', inherited='inherited', invisible='invisible'))
     pxr.UsdLux = types.SimpleNamespace(SphereLight=SphereLight, LightAPI=LightAPI)
     pxr.UsdRender = types.SimpleNamespace(Settings=Settings)
     return pxr
@@ -111,7 +126,8 @@ class AuthoringContractTests(unittest.TestCase):
                 stage = Stage()
                 v = defaults('field'); v.update(kind=kind, path='/World/Thing',
                     color_mode='display', color=(0.2, 0.4, 0.6), stamp=True, cache_name='thing_1')
-                if kind == 'mesh': stage.DefinePrim('/World/Thing', 'Mesh')
+                if kind == 'mesh':
+                    stage.DefinePrim('/World/Thing', 'Mesh').CreateAttribute('points', 'Point3fArray').Set([(-1, -2, -3), (1, 2, 3)])
                 prim = author(stage, 'field', v)
                 tag = 'pbvfx:isf_type' if kind.startswith('isf_') else 'pbvfx:field_type'
                 if kind != 'mesh': self.assertEqual(prim.attrs[tag].value, kind)
@@ -124,6 +140,30 @@ class AuthoringContractTests(unittest.TestCase):
                 if kind == 'wisp':
                     self.assertEqual(prim.attrs['pbvfx:wispDots'].value, 100000)
                     self.assertIn('pbvfx:wispNoise2Translation', prim.attrs)
+
+    def test_preview_geometry_tracks_field_bounds_and_can_be_hidden(self):
+        v = defaults('field'); v.update(kind='isf_torus', path='/World/Torus', majorRadius=2.0, minorRadius=0.5)
+        prim = author(self.stage, 'field', v)
+        proxy = self.stage.GetPrimAtPath('/World/Torus/__physvfx_bounds')
+        self.assertEqual(proxy.type_name, 'BasisCurves')
+        self.assertTrue(proxy.attrs['pbvfx:preview'].value)
+        points = proxy.attrs['Points'].value
+        self.assertEqual(len(points), 24)
+        self.assertEqual(min(point[0] for point in points), -2.5)
+        self.assertEqual(max(point[0] for point in points), 2.5)
+        v['majorRadius'] = 3.0
+        author(self.stage, 'field', v)
+        self.assertEqual(max(point[0] for point in proxy.attrs['Points'].value), 3.5)
+        v['show_preview'] = False
+        author(self.stage, 'field', v)
+        self.assertEqual(proxy.attrs['Visibility'].value, 'invisible')
+        self.assertEqual(prim.attrs['pbvfx:isf_type'].value, 'isf_torus')
+
+    def test_reserved_preview_path_is_not_overwritten(self):
+        self.stage.DefinePrim('/World/Thing/__physvfx_bounds', 'Mesh')
+        v = defaults('field'); v.update(path='/World/Thing', kind='isf_torus')
+        with self.assertRaisesRegex(AuthoringError, 'reserved preview path'):
+            author(self.stage, 'field', v)
 
     def test_all_wisp_parameters_are_authored(self):
         v = defaults('field'); v.update(kind='wisp', path='/World/Wisp', cache_name='named')

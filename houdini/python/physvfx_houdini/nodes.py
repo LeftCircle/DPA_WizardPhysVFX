@@ -44,12 +44,19 @@ def read_values(node, kind):
     for spec in parameters(kind):
         name = 'pv_' + spec.name
         if spec.kind in ('vector', 'vector2', 'color', 'int2'):
-            values[spec.name] = tuple(node.parmTuple(name).eval())
-        elif spec.kind in ('string', 'menu'):
-            values[spec.name] = node.parm(name).evalAsString()
+            parm = node.parmTuple(name)
+            values[spec.name] = tuple(parm.eval()) if parm is not None else spec.default
         else:
-            value = node.parm(name).eval()
-            values[spec.name] = bool(value) if spec.kind == 'toggle' else value
+            parm = node.parm(name)
+            if parm is None:
+                # Nodes created with earlier plugin versions have no new spare
+                # parameters, but should continue to cook using current defaults.
+                values[spec.name] = spec.default
+            elif spec.kind in ('string', 'menu'):
+                values[spec.name] = parm.evalAsString()
+            else:
+                value = parm.eval()
+                values[spec.name] = bool(value) if spec.kind == 'toggle' else value
     return values
 
 

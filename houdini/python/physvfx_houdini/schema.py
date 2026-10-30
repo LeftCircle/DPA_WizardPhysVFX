@@ -69,7 +69,12 @@ PARAMETERS = {
             P("kind", "Field Type", "menu", "isf_sphere", choices=FIELD_KINDS),
             P("create", "Create Missing Prim", "toggle", True,
               "Create a Sphere or Xform. Mesh fields require an existing USD Mesh."),
-        ) + COLOR + STAMP),
+        ) + COLOR + STAMP + (
+            P("show_preview", "Show Bounds Preview", "toggle", True,
+              "Show a viewport-only wireframe bounding box; excluded from the PhysVFX render."),
+            P("preview_wisp_radius", "Wisp Preview Half Size", "float", 0.0,
+              "Wisp only: local-space half size. Zero estimates a size from the wisp settings."),
+        )),
         ("Analytic and Mesh", (
             P("override_radius", "Override Sphere Radius", "toggle", False,
               "If off, a USD Sphere uses its native radius; other prims use 1."),

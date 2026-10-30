@@ -137,6 +137,16 @@ class NodeConstructionTests(unittest.TestCase):
             with self.assertRaises(hou.NodeError):
                 cook(node, 'field')
 
+    def test_existing_nodes_use_defaults_for_new_preview_parameters(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('field', network=network)
+            del node.values['pv_show_preview']
+            del node.values['pv_preview_wisp_radius']
+            values = read_values(node, 'field')
+            self.assertTrue(values['show_preview'])
+            self.assertEqual(values['preview_wisp_radius'], 0.0)
+
     def test_shelf_xml_references_all_tools(self):
         path = Path(__file__).resolve().parents[1] / 'toolbar' / 'physvfx.shelf'
         root = ET.parse(path).getroot()

@@ -429,6 +429,18 @@ class TranslationTests(unittest.TestCase):
             self.assertTrue(second.objects[1].cache_hit)
             self.assertEqual(events, ['voxelize', 'save', 'load'])
 
+    def test_preview_geometry_is_not_loaded_as_a_scene_object(self):
+        module, _, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        # An untagged Mesh is otherwise imported, making this a regression test
+        # for viewport proxies accidentally becoming renderable geometry.
+        proxy = Prim(Mesh, '/sphere/__physvfx_bounds', {'pbvfx:preview': True})
+        stage.Traverse = lambda: original + [proxy]
+        scene = module.load_scene('scene')
+        self.assertEqual(len(scene.objects), 1)
+        self.assertEqual(scene.objects[0].path, '/sphere')
+
     def test_unknown_tags_and_untagged_primitives_are_rejected(self):
         module, sphere, _, _, _, _ = fixture()
         sphere.values['pbvfx:isf_type'] = 'not_a_type'

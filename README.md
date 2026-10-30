@@ -5,6 +5,13 @@ fields. It combines analytic implicit surfaces, procedural noise and wisps,
 OpenVDB grids, and a ray-marching renderer. Python bindings and USD scene
 loading provide another way to assemble and render scenes.
 
+## Houdini Solaris authoring
+
+The [`houdini/`](houdini/) tools create Solaris nodes for authoring PhysVFX
+fields, operations, cameras, lights, and render settings on a USD stage. See
+[`houdini/README.md`](houdini/README.md) for installation, a layout-to-render
+workflow, the supported attributes, and testing instructions.
+
 ## Connections to volume rendering research
 
 The following parts of the code are relevant to the volume rendering internship

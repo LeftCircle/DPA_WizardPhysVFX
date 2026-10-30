@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <toolshelf name="physvfx" label="PhysVFX">
+    <memberTool name="physvfx_field"/>
+    <memberTool name="physvfx_operation"/>
+    <memberTool name="physvfx_camera"/>
+    <memberTool name="physvfx_light"/>
+    <memberTool name="physvfx_settings"/>
+  </toolshelf>
+  <tool name="physvfx_field" label="PhysVFX Field" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.create_node('field')]]></script>
+  </tool>
+  <tool name="physvfx_operation" label="PhysVFX Operation" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.create_node('operation')]]></script>
+  </tool>
+  <tool name="physvfx_camera" label="PhysVFX Camera" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.create_node('camera')]]></script>
+  </tool>
+  <tool name="physvfx_light" label="PhysVFX Light" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.create_node('light')]]></script>
+  </tool>
+  <tool name="physvfx_settings" label="PhysVFX Render Settings" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.create_node('settings')]]></script>
+  </tool>
+</shelfDocument>

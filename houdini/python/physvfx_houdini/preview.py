@@ -72,6 +72,8 @@ def _cube(extent):
 
 def local_bounds(prim, kind, values):
     """Return conservative local bounds, except wisps which use an estimate."""
+    if kind == 'shadow_region':
+        return values['bounds_min'], values['bounds_max']
     if kind == 'isf_sphere':
         from pxr import UsdGeom
         attr = prim.GetAttribute('radius') if prim.IsA(UsdGeom.Sphere) else None
@@ -245,3 +247,8 @@ def author_stamp_preview(stage, prim, values):
     UsdGeom.PrimvarsAPI(proxy).CreatePrimvar('displayColor', Sdf.ValueTypeNames.Color3fArray,
                                             UsdGeom.Tokens.constant).Set([Gf.Vec3f(1, 0, 0)])
     UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)
+
+def author_shadow_region_preview(stage, prim, values):
+    # The generic guide is a tagged local-space wireframe. The renderer uses
+    # its enclosing world-axis-aligned box when the prim is rotated.
+    author_preview(stage, prim, 'shadow_region', values)

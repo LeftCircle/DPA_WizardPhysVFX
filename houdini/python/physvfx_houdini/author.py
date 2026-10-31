@@ -402,7 +402,22 @@ def author_settings(stage, v):
     return prim
 
 
-AUTHORS = {'field': author_field, 'operation': author_operation, 'camera': author_camera,
+def author_shadow_region(stage, v):
+    path = _path(v['path'], 'Shadow region path')
+    lo, hi = _bounds(v)
+    prim = _existing_or_create(stage, path, True, 'Xform')
+    _attr(prim, 'shadowRegion', 'Bool', True)
+    _float3(prim, 'shadowBoundsMin', lo, point=True)
+    _float3(prim, 'shadowBoundsMax', hi, point=True)
+    from .preview import author_shadow_region_preview
+    try:
+        author_shadow_region_preview(stage, prim, v)
+    except ValueError as exc:
+        raise AuthoringError(str(exc)) from exc
+    return prim
+
+
+AUTHORS = {'shadow_region': author_shadow_region, 'field': author_field, 'operation': author_operation, 'camera': author_camera,
            'light': author_light, 'settings': author_settings}
 
 

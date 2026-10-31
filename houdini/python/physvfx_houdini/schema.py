@@ -70,6 +70,12 @@ def noise_fields(prefix, label):
 
 
 PARAMETERS = {
+    "shadow_region": (("Shadow Region", (
+        P("path", "Region Prim Path", "string", "/World/ShadowRegion"),
+        P("bounds_min", "Local Minimum", "vector", (-1.0, -1.0, -1.0)),
+        P("bounds_max", "Local Maximum", "vector", (1.0, 1.0, 1.0)),
+        P("show_preview", "Show Region Guide", "toggle", True),
+    )),),
     "field": (
         ("Field", (
             P("path", "Prim Path", "string", "/World/PhysVFXField",

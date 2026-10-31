@@ -161,7 +161,8 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(calls[0][0], scene.density)
         self.assertEqual(calls[0][1], scene.color)
         self.assertEqual(calls[0][3], scene.lights)
-        self.assertEqual(calls[0][-1], 'out.exr')
+        self.assertEqual(calls[0][-2], 'out.exr')
+        self.assertEqual(calls[0][-1], [])
         self.assertLess(scene.bounds_min[0], scene.center[0] - scene.radius)
         self.assertGreater(scene.bounds_max[0], scene.center[0] + scene.radius)
 
@@ -379,6 +380,22 @@ class TranslationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.load_scene('scene')
 
+    def test_shadow_regions_follow_prim_transform_and_forward_to_renderer(self):
+        module, _, _, _, _, calls = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        orig = list(stage.Traverse())
+        region = Prim(None, '/region', {'pbvfx:shadowRegion': True,
+                      'pbvfx:shadowBoundsMin': (-1, -2, -1),
+                      'pbvfx:shadowBoundsMax': (1, 2, 1)}, Matrix((4, 2, 0), (2, 1, 1)))
+        stage.Traverse = lambda: orig + [region]
+        scene = module.load_scene('scene')
+        self.assertEqual(scene.shadow_regions, [((1, 0, -0.5), (3, 2, 0.5))])
+        scene.render('out.exr')
+        self.assertEqual(calls[-1][-1], [((1, 0, -0.5), (3, 2, 0.5))])
+        region.values['pbvfx:shadowBoundsMax'] = (-2, 1, 1)
+        with self.assertRaises(ValueError):
+            module.get_shadow_regions(stage)
+
     def test_named_stamp_is_reused_and_unnamed_stamp_is_not_cached(self):
         module, sphere, _, _, _, _ = fixture()
         sphere.values.update({'pbvfx:stamp': True, 'pbvfx:cacheName': 'sphere_cache'})
@@ -520,7 +537,7 @@ class TranslationTests(unittest.TestCase):
             output = Path(tmp) / 'nested' / 'render.exr'
             module.main(['scene.usda', '--output', str(output)])
             self.assertTrue(output.parent.is_dir())
-            self.assertEqual(calls[0][-1], str(output))
+            self.assertEqual(calls[0][-2], str(output))
 
 
 if __name__ == '__main__': unittest.main()

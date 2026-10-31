@@ -498,3 +498,27 @@ the sampler adds two voxel widths of padding. Bounds do not automatically fit
 the shape. This clipping option does not restrict initial mesh voxelization or
 wisp deposition. See the [Houdini guide](houdini/README.md#per-object-stamping)
 for the node controls, viewport guide, cache invalidation, and older-node update.
+
+### USD shadow map regions
+
+The CPU USD renderer optionally accepts multiple shadow regions. Author an
+Xform with `custom bool pbvfx:shadowRegion = true` and local-space
+`point3f pbvfx:shadowBoundsMin` and `point3f pbvfx:shadowBoundsMax`, e.g.:
+
+```usda
+def Xform "ShadowRegion" {
+    custom bool pbvfx:shadowRegion = true
+    custom point3f pbvfx:shadowBoundsMin = (-2, -2, -2)
+    custom point3f pbvfx:shadowBoundsMax = (2, 2, 2)
+    double3 xformOp:translate = (0, 1, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+}
+```
+
+Use a separate prim per region; if none are authored, the scene-wide bounds
+are used. Each box is transformed into a world-axis-aligned enclosing box.
+Shadow rays integrate only the union of these boxes, including disconnected
+regions, and stop after the last ray intersection or the light, whichever is
+closer. Volumes outside all regions do not cast shadows, and points outside all
+regions receive unattenuated light. Overlapping maps use the first region in
+stage traversal order for lookup. See [the Houdini guide](houdini/README.md#shadow-map-regions).

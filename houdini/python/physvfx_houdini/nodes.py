@@ -4,6 +4,7 @@ from .author import AuthoringError, author
 
 
 NODE_LABELS = {
+    'shadow_region': 'PhysVFX Shadow Region',
     'field': 'PhysVFX Field',
     'operation': 'PhysVFX Operation',
     'camera': 'PhysVFX Camera',

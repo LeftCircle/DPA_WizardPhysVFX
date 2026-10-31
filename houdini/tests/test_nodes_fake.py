@@ -173,7 +173,7 @@ class NodeConstructionTests(unittest.TestCase):
         refs = {node.attrib['name'] for node in root.findall('./toolshelf/memberTool')}
         tools = {node.attrib['name'] for node in root.findall('./tool')}
         self.assertEqual(refs, tools)
-        self.assertEqual(len(tools), 6)
+        self.assertEqual(len(tools), 7)
         for script in root.findall('./tool/script'):
             self.assertTrue('physvfx_houdini.create_node(' in script.text or
                             'physvfx_houdini.refresh_selected_nodes()' in script.text)

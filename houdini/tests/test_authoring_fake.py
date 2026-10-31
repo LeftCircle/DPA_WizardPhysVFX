@@ -159,6 +159,15 @@ class AuthoringContractTests(unittest.TestCase):
         author(self.stage, 'field', v)
         self.assertEqual(guide.attrs['Visibility'].value, 'invisible')
 
+    def test_shadow_region_authors_bounds_and_viewport_guide(self):
+        v = defaults('shadow_region')
+        v.update(path='/World/Shadow', bounds_min=(-1,-2,-3), bounds_max=(1,2,3))
+        prim = author(self.stage, 'shadow_region', v)
+        self.assertTrue(prim.attrs['pbvfx:shadowRegion'].value)
+        self.assertEqual(prim.attrs['pbvfx:shadowBoundsMin'].value, (-1,-2,-3))
+        guide = self.stage.GetPrimAtPath('/World/Shadow/__physvfx_bounds')
+        self.assertTrue(guide.attrs['pbvfx:preview'].value)
+
     def test_preview_geometry_tracks_field_bounds_and_can_be_hidden(self):
         v = defaults('field'); v.update(kind='isf_torus', path='/World/Torus', majorRadius=2.0, minorRadius=0.5)
         prim = author(self.stage, 'field', v)

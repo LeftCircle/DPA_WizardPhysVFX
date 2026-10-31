@@ -230,3 +230,19 @@ select one or more PhysVFX nodes and click **Refresh PhysVFX Parameters** on the
 PhysVFX shelf. Missing controls are added in a **PhysVFX Updates** tab without
 resetting existing values. This also exposes any older missing controls, such
 as **Use Explicit Pyro Bounds**. Newly created nodes already contain them.
+
+### Shadow map regions
+
+Use **PhysVFX Shadow Region** in Solaris to place one or more boxes around the
+volumes that need shadow maps. Each node authors an Xform with local minimum and
+maximum bounds and a viewport-only orange guide. Place/transform the prim with
+normal USD layout tools. The renderer uses the world-axis-aligned box enclosing
+the transformed local box, so a rotated guide can enclose a larger region.
+
+Without authored regions, the renderer uses its normal scene-wide shadow map.
+With regions present, cover every volume that should receive or cast shadows;
+outside all regions the shadow lookup returns unattenuated light. Every light
+gets a map in each region. Rays integrate through the union of all regions,
+including separate regions farther toward the light; gaps are skipped and
+overlaps are counted once. Regions do not crop the main camera render. This
+only limits the CPU USD renderer's shadow-map work, not the CUDA render paths.

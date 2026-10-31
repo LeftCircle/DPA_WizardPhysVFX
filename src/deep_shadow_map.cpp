@@ -4,13 +4,14 @@
 
 namespace lux{
 
-GridPtr<float> make_dsm_grid(
+GridPtr<float> make_dsm_grid_in_regions(
     const vspf density_field,
     float voxel_size,
     const coordbbox& bounds,
     const PointLight& light,
     float step_size,
-    float kappa
+    float kappa,
+    const std::vector<ShadowRegion>& regions
 ){
     // create the floatgrid based on the inputs
     auto stamp_func = [density_field](const Vector& p){ return density_field->eval(p); };
@@ -24,11 +25,15 @@ GridPtr<float> make_dsm_grid(
         return val < 0 ? val : 0;
     };
 
-    auto op = [&grid, &density_field, eval_func, &light, &step_size](
+    auto region_union = regions;
+    if (region_union.empty()) {
+        region_union.emplace_back(Vector(grid->indexToWorld(bounds.min())), Vector(grid->indexToWorld(bounds.max())));
+    }
+    auto op = [&grid, eval_func, &light, &step_size, &region_union](
         const openvdb::FloatGrid::ValueOnIter& iter
     ){
         Vector start_vec(grid->indexToWorld(iter.getCoord()));
-        auto val = accumulate_over_steps(start_vec, light.position, step_size, eval_func);
+        auto val = accumulate_in_regions(start_vec, light.position, step_size, eval_func, region_union);
         iter.setValue(val);
     };
 
@@ -36,6 +41,14 @@ GridPtr<float> make_dsm_grid(
     openvdb::tools::foreach(grid->beginValueOn(), op);
 
    return grid;
+}
+
+GridPtr<float> make_dsm_grid(
+    const vspf density_field, float voxel_size, const coordbbox& bounds,
+    const PointLight& light, float step_size, float kappa
+) {
+    return make_dsm_grid_in_regions(density_field, voxel_size, bounds, light,
+                                    step_size, kappa, {});
 }
 
 vspf make_deep_shadow_map(

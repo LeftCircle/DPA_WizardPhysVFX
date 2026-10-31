@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <OpenImageIO/imageio.h>
@@ -11,6 +13,11 @@
 #include "usd_scene_render.h"
 
 using namespace lux;
+
+// Calls through the CUDA timing helper pass this function as a pointer;
+// default arguments on a different signature would not be applied.
+static_assert(std::is_invocable_r_v<GridPtr<float>, decltype(&make_dsm_grid),
+    vspf, float, const coordbbox&, const PointLight&, float, float>);
 
 TEST_CASE("general USD renderer writes red and green volumes") {
     const auto left = isf_sphere(Vector(-1, 0, 0), 0.65f);
@@ -84,4 +91,20 @@ TEST_CASE("general USD renderer writes red and green volumes") {
         one_light_sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
     REQUIRE(one_light_sum > 0);
     REQUIRE(two_light_sum > 1.3 * one_light_sum);
+}
+
+TEST_CASE("shadow integration clips and merges multiple regions") {
+    const std::vector<ShadowRegion> regions = {
+        {Vector(0,-1,-1), Vector(1,1,1)}, {Vector(0.5,-1,-1), Vector(2,1,1)},
+        {Vector(4,-1,-1), Vector(5,1,1)}
+    };
+    int calls = 0;
+    auto density = [&calls](const Vector&) { ++calls; return -2.f; };
+    const auto value = accumulate_in_regions(Vector(0,0,0), Vector(10,0,0), 0.3f, density, regions);
+    REQUIRE(std::abs(value + 6.f) < 1e-4f);
+    REQUIRE(calls < 20);
+    calls = 0;
+    REQUIRE(accumulate_in_regions(Vector(0,4,0), Vector(10,4,0), 0.3f, density, regions) == 0);
+    REQUIRE(calls == 0);
+    REQUIRE(std::abs(accumulate_in_regions(Vector(0,0,0), Vector(0.7,0,0), 0.3f, density, regions) + 1.4f) < 1e-4f);
 }

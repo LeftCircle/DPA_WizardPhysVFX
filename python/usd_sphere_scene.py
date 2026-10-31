@@ -707,6 +707,7 @@ class Scene:
     color: object
     bounds_min: tuple
     bounds_max: tuple
+    shadow_regions: list
 
     @property
     def camera(self): return self.camera_info.native
@@ -738,7 +739,31 @@ class Scene:
     def render(self, filename):
         with _timed(f'Render scene and write {filename}'):
             fx.render_usd_scene(self.density, self.color, self.camera, self.lights,
-                                self.settings, _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename))
+                                self.settings, _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename),
+                                [(_fxvec(a), _fxvec(b)) for a, b in self.shadow_regions])
+
+
+def get_shadow_regions(stage, volume_meters_per_unit=1.0):
+    """World-axis-aligned boxes from transformed, local-space region prims."""
+    scale = _unit_scale(stage, volume_meters_per_unit)
+    cache = UsdGeom.XformCache(Usd.TimeCode.Default())
+    regions = []
+    for prim in stage.Traverse():
+        if not _custom(prim, 'shadowRegion', False):
+            continue
+        lo = _vec(_custom(prim, 'shadowBoundsMin', (-1, -1, -1)))
+        hi = _vec(_custom(prim, 'shadowBoundsMax', (1, 1, 1)))
+        if any(not math.isfinite(x) for x in (*lo, *hi)) or any(a >= b for a, b in zip(lo, hi)):
+            raise ValueError(f'{prim.GetPath()}: invalid shadow region bounds')
+        matrix = cache.GetLocalToWorldTransform(prim)
+        corners = [_vec(matrix.Transform(Gf.Vec3d(x, y, z)), scale)
+                   for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+        world_lo = tuple(min(p[i] for p in corners) for i in range(3))
+        world_hi = tuple(max(p[i] for p in corners) for i in range(3))
+        if any(not math.isfinite(x) for x in (*world_lo, *world_hi)) or any(a >= b for a, b in zip(world_lo, world_hi)):
+            raise ValueError(f'{prim.GetPath()}: degenerate transformed shadow region')
+        regions.append((world_lo, world_hi))
+    return regions
 
 
 def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache"):
@@ -767,7 +792,8 @@ def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache"):
     padding = 3 * max(settings.density_voxel_size, settings.color_voxel_size, settings.shadow_voxel_size)
     bounds_min = tuple(min(obj.bounds_min[i] for obj in objects) - padding for i in range(3))
     bounds_max = tuple(max(obj.bounds_max[i] for obj in objects) + padding for i in range(3))
-    return Scene(settings, camera, lights, objects, sdf, density, color, bounds_min, bounds_max)
+    return Scene(settings, camera, lights, objects, sdf, density, color, bounds_min, bounds_max,
+                 get_shadow_regions(stage, volume_meters_per_unit))
 
 
 def main(argv=None):

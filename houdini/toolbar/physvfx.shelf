@@ -2,6 +2,7 @@
 <shelfDocument>
   <toolshelf name="physvfx" label="PhysVFX">
     <memberTool name="physvfx_field"/>
+    <memberTool name="physvfx_shadow_region"/>
     <memberTool name="physvfx_operation"/>
     <memberTool name="physvfx_camera"/>
     <memberTool name="physvfx_light"/>
@@ -31,5 +32,9 @@ physvfx_houdini.create_node('settings')]]></script>
   <tool name="physvfx_refresh" label="Refresh PhysVFX Parameters" icon="LOP_python">
     <script scriptType="python"><![CDATA[import physvfx_houdini
 physvfx_houdini.refresh_selected_nodes()]]></script>
+  </tool>
+  <tool name="physvfx_shadow_region" label="PhysVFX Shadow Region" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.create_node('shadow_region')]]></script>
   </tool>
 </shelfDocument>

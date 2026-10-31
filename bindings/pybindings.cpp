@@ -113,7 +113,7 @@ PYBIND11_MODULE(physics_vfx, module)
 
     module.def("render_usd_scene", &render_usd_scene, py::arg("density"), py::arg("color"),
         py::arg("camera"), py::arg("lights"), py::arg("settings"), py::arg("bounds_min"),
-        py::arg("bounds_max"), py::arg("filename"), py::call_guard<py::gil_scoped_release>());
+        py::arg("bounds_max"), py::arg("filename"), py::arg("shadow_regions") = std::vector<ShadowRegion>{}, py::call_guard<py::gil_scoped_release>());
 
     py::class_<Color>(module, "Color")
         .def(py::init<>())

@@ -61,7 +61,8 @@ void write_image(const ImageData& image, const std::string& filename) {
 
 void render_usd_scene(const vspf& density, const vspc& color, const Camera& camera,
     const std::vector<PointLight>& lights, const RenderSettings& rs,
-    const Vector& lo, const Vector& hi, const std::string& filename)
+    const Vector& lo, const Vector& hi, const std::string& filename,
+    const std::vector<ShadowRegion>& authored_regions)
 {
     const auto positive = [](float v) { return std::isfinite(v) && v > 0.0f; };
     if (!density || !color || filename.empty() || rs.width <= 0 || rs.height <= 0 ||
@@ -81,7 +82,12 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
     }
 
     openvdb::initialize();
-    const auto shadow_bounds = world_space_to_bounds(lo, hi, rs.get_shadow_vs());
+    const auto regions = authored_regions.empty() ? std::vector<ShadowRegion>{{lo, hi}} : authored_regions;
+    for (const auto& region : regions) {
+        if (!finite_vector(region.first) || !finite_vector(region.second) ||
+            region.first.X() >= region.second.X() || region.first.Y() >= region.second.Y() ||
+            region.first.Z() >= region.second.Z()) throw std::invalid_argument("Invalid shadow region");
+    }
 
     RayMarcher marcher;
     marcher.set_snear(rs.near_dist);
@@ -99,8 +105,23 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
         const auto label = "Shadow map " + std::to_string(i + 1) + "/" + std::to_string(lights.size());
         std::cout << "[PhysVFX] " << label << ": starting" << std::endl;
         start = Clock::now();
-        auto shadow = make_deep_shadow_map_parallel(density, rs.get_shadow_vs(),
-            shadow_bounds, light, rs.shadow_step, light.kappa);
+        std::vector<vspf> maps;
+        for (size_t j = 0; j < regions.size(); ++j) {
+            std::cout << "[PhysVFX] " << label << ", region " << (j+1) << "/" << regions.size() << ": starting" << std::endl;
+            auto region_start = Clock::now();
+            auto bounds = world_space_to_bounds(regions[j].first, regions[j].second, rs.get_shadow_vs());
+            auto grid = make_dsm_grid_in_regions(density, rs.get_shadow_vs(), bounds, light, rs.shadow_step, light.kappa, regions);
+            maps.push_back(make_deep_shadow_map(grid));
+            report_elapsed(label + ", region " + std::to_string(j+1), region_start);
+        }
+        auto shadow = funcfield<float>([maps, regions](const Vector& p) {
+            for (size_t j = 0; j < regions.size(); ++j) {
+                const auto& a = regions[j].first; const auto& b = regions[j].second;
+                if (p.X() >= a.X() && p.X() <= b.X() && p.Y() >= a.Y() && p.Y() <= b.Y() && p.Z() >= a.Z() && p.Z() <= b.Z())
+                    return maps[j]->eval(p);
+            }
+            return 1.0f;
+        });
         marcher.add_shadow_map(shadow, light.color);
         report_elapsed(label, start);
     }

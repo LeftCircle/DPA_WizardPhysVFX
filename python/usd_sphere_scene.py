@@ -385,10 +385,27 @@ def _include_grid_bounds(item, grid):
         item.bounds_max = tuple(max(item.bounds_max[i], bounds[1][i] + pad) for i in range(3))
 
 
-def get_mesh_object(prim, settings, volume_meters_per_unit=1.0, stamp_cache=None):
+def _object_voxel_size(prim, settings, scale):
+    value = _positive(_custom(prim, 'stampVoxelSize', 0.0), 'pbvfx:stampVoxelSize', allow_zero=True)
+    return value * scale if value else _positive(settings.density_voxel_size, 'density voxel size')
+
+
+def _stamp_world_bounds(prim, matrix, scale):
+    lo = _vec(_custom(prim, 'stampBoundsMin', None))
+    hi = _vec(_custom(prim, 'stampBoundsMax', None))
+    if any(a >= b for a, b in zip(lo, hi)):
+        raise ValueError(f'{prim.GetPath()}: invalid local stamp bounds')
+    corners = [_vec(matrix.Transform(Gf.Vec3d(x, y, z)), scale)
+               for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+    return (tuple(min(p[i] for p in corners) for i in range(3)),
+            tuple(max(p[i] for p in corners) for i in range(3)))
+
+
+def get_mesh_object(prim, settings, volume_meters_per_unit=1.0, stamp_cache=None, unit_scale=1.0):
     """Convert a USD Mesh to a grid-backed field, optionally reusing a cache."""
     from usd_mesh import mesh_prim_to_field, mesh_world_bounds
     half_width = _positive(_custom(prim, 'meshHalfWidth', 3.0), 'pbvfx:meshHalfWidth')
+    voxel_size = _object_voxel_size(prim, settings, unit_scale)
     name = _custom(prim, 'cacheName', None)
     grid = stamp_cache.load(prim) if stamp_cache and name else None
     hit = grid is not None
@@ -397,13 +414,13 @@ def get_mesh_object(prim, settings, volume_meters_per_unit=1.0, stamp_cache=None
     elif stamp_cache and name:
         from usd_mesh import mesh_prim_to_grid
         with _timed(f'Voxelize mesh {prim.GetPath()}'):
-            grid = mesh_prim_to_grid(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
+            grid = mesh_prim_to_grid(prim, voxel_size, half_width, volume_meters_per_unit)
         field = fx.make_grid_field(grid)
         if not _custom(prim, 'stamp', False):
             stamp_cache.save(prim, grid)
     else:
         with _timed(f'Voxelize mesh {prim.GetPath()}'):
-            field = mesh_prim_to_field(prim, settings.density_voxel_size, half_width, volume_meters_per_unit)
+            field = mesh_prim_to_field(prim, voxel_size, half_width, volume_meters_per_unit)
     rgb = _display_color(prim)
     bounds_min, bounds_max = mesh_world_bounds(prim, volume_meters_per_unit)
     item = SceneObject(str(prim.GetPath()), 'mesh', field, fx.Color(*rgb, 0), rgb,
@@ -466,7 +483,7 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
                          _positive(_custom(prim, prefix + 'FrequencyJump', 1.0), prefix + 'FrequencyJump'))
     seed = int(_custom(prim, 'wispSeed', 1))
     displacement = _fxvec(_vec(_custom(prim, 'wispDisplacement', (1, 1, 1))))
-    voxel = _positive(settings.density_voxel_size, 'density voxel size') / unit_scale
+    voxel = _object_voxel_size(prim, settings, unit_scale) / unit_scale
     grid = stamp_cache.load(prim) if stamp_cache else None
     hit = grid is not None
     if not hit:
@@ -497,12 +514,19 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
                        bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit)
 
 
-def _prepare_object(prim, item, settings, stamp_cache=None):
+def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_scale=1.0):
     """Optionally sample an object field into its own world-space grid."""
     stamp = _custom(prim, 'stamp', False)
     if not isinstance(stamp, bool):
         raise ValueError(f'{prim.GetPath()}: pbvfx:stamp must be a bool')
+    if _custom(prim, 'useStampBounds', False) and (item.is_density or not stamp):
+        raise ValueError(f'{prim.GetPath()}: specified stamp bounds require Stamp Field on a non-wisp field')
     if stamp and not item.is_density:
+        if _custom(prim, 'useStampBounds', False):
+            if matrix is None:
+                raise ValueError(f'{prim.GetPath()}: missing transform for stamp bounds')
+            item.bounds_min, item.bounds_max = _stamp_world_bounds(prim, matrix, unit_scale)
+            item.field = _clip_field(item.field, item.bounds_min, item.bounds_max)
         if item.cache_hit:
             item.stamped = True
             return item
@@ -513,7 +537,7 @@ def _prepare_object(prim, item, settings, stamp_cache=None):
             item.cache_hit = True
             _include_grid_bounds(item, grid)
             return item
-        voxel_size = _positive(settings.density_voxel_size, 'density voxel size')
+        voxel_size = _object_voxel_size(prim, settings, unit_scale)
         padding = 2.0 * voxel_size
         lo = tuple(x - padding for x in item.bounds_min)
         hi = tuple(x + padding for x in item.bounds_max)
@@ -613,11 +637,11 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
         else:
             item = get_isf_object(prim, cache, scale)
         if item is None and prim.IsA(UsdGeom.Mesh):
-            item = get_mesh_object(prim, settings, volume_meters_per_unit, stamp_cache)
+            item = get_mesh_object(prim, settings, volume_meters_per_unit, stamp_cache, scale)
         elif item is None and prim.IsA(UsdGeom.Gprim):
             raise ValueError(f'{path}: untagged geometry must be a USD Mesh')
         if item is not None:
-            objects[path] = _prepare_object(prim, item, settings, stamp_cache)
+            objects[path] = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale)
 
     consumed, active = set(), set()
 
@@ -663,7 +687,7 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
                                       prim.GetAttribute('pbvfx:color')) else inputs[0].rgb
         item = SceneObject(path, name, field, fx.Color(*rgb, 0), rgb,
                            bounds_min=lo, bounds_max=hi)
-        objects[path] = _prepare_object(prim, item, settings, stamp_cache)
+        objects[path] = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale)
         return objects[path]
 
     for path in operations:

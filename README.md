@@ -486,3 +486,15 @@ transforms, operation inputs, voxel size, or wisp settings. Delete the relevant
 change. Use separate cache directories for unrelated scenes to avoid reusing a
 name for different content. A corrupt or incompatible cache raises an error;
 remove it to regenerate the stamp.
+
+Per-prim stamping can override the density voxel size with a positive
+`pbvfx:stampVoxelSize` in stage units (`0` or an absent value inherits the
+render setting). It also controls mesh voxelization and wisp grid resolution.
+For an analytic field or operation with `pbvfx:stamp = true`,
+`pbvfx:useStampBounds = true` selects `point3f pbvfx:stampBoundsMin` and
+`pbvfx:stampBoundsMax` in prim-local coordinates. Their transformed corners
+form a world-axis-aligned box that clips the field and bounds the sampling;
+the sampler adds two voxel widths of padding. Bounds do not automatically fit
+the shape. This clipping option does not restrict initial mesh voxelization or
+wisp deposition. See the [Houdini guide](houdini/README.md#per-object-stamping)
+for the node controls, viewport guide, cache invalidation, and older-node update.

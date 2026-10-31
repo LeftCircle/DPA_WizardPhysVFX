@@ -127,6 +127,17 @@ def _float3(prim, name, value, point=False):
 
 def _stamp(prim, values):
     _attr(prim, 'stamp', 'Bool', bool(values['stamp']))
+    size = _positive(values.get('stamp_voxel_size', 0.025), 'Object density voxel size') if values.get('use_stamp_voxel_size', False) else 0.0
+    _float(prim, 'stampVoxelSize', size)
+    enabled = bool(values.get('use_stamp_bounds', False))
+    _attr(prim, 'useStampBounds', 'Bool', enabled)
+    if enabled or values.get('show_stamp_bounds', False):
+        lo = _vec(values.get('stamp_bounds_min', (-2, -2, -2)), 3, 'Stamp bounds minimum')
+        hi = _vec(values.get('stamp_bounds_max', (2, 2, 2)), 3, 'Stamp bounds maximum')
+        if any(a >= b for a, b in zip(lo, hi)):
+            raise AuthoringError('Each stamp bounds minimum must be less than its maximum')
+        _float3(prim, 'stampBoundsMin', lo, point=True)
+        _float3(prim, 'stampBoundsMax', hi, point=True)
     # An empty authored string also overrides an upstream cache name.
     _attr(prim, 'cacheName', 'String', _cache_name(values['cache_name']))
 
@@ -241,6 +252,8 @@ def author_field(stage, v):
     from .preview import author_preview
     try:
         author_preview(stage, prim, kind, v)
+        from .preview import author_stamp_preview
+        author_stamp_preview(stage, prim, v)
     except ValueError as exc:
         raise AuthoringError(str(exc)) from exc
     return prim
@@ -303,6 +316,11 @@ def author_operation(stage, v):
             _float3(prim, 'normal', _normal(v['normal'], 'Warp direction'))
     _stamp(prim, v)
     _display_color(prim, v)
+    from .preview import author_stamp_preview
+    try:
+        author_stamp_preview(stage, prim, v)
+    except ValueError as exc:
+        raise AuthoringError(str(exc)) from exc
     return prim
 
 

@@ -195,3 +195,38 @@ that Python interpreter. Houdini's Python version must match the version used
 to build the extension; otherwise run the exported scene with the separately
 configured renderer Python. The headless LOP smoke test skips in an interactive
 Houdini session and cleans up the nodes it creates.
+
+### Per-object stamping
+
+Field and Operation nodes have **Override Density Voxel Size**, **Object Density
+Voxel Size**, **Use Specified Stamp Bounds**, **Stamp Bounds Minimum/Maximum
+(Local)**, and **Show Stamp Bounds (Red)** in their main tab. The voxel size is
+in stage units; without an override the render setting is used. It applies to
+field stamps, mesh voxelization, and wisp grids. Named caches are not
+invalidated when settings change: delete or rename the cache after edits.
+
+For an analytic field or operation, turn on **Stamp Field** and **Use Specified
+Stamp Bounds**. Bounds are offsets in the prim's local coordinate system, with
+fixed initial values of -2 and 2; they are not automatically fitted to the
+shape. The loader transforms the eight corners into world space and uses their
+axis-aligned enclosing box to clip and stamp the result. Rotation or scale can
+therefore enlarge that world-aligned box. The red guide shows that box; it is a
+viewport-only proxy and the loader excludes it. Two extra voxels of padding are
+sampled outside the displayed box for interpolation. Set the prim's transform
+upstream of the PhysVFX authoring node so the guide recomputes when it changes.
+Operation prims often start at the world origin; their local bounds are relative
+to the operation prim, not automatically relative to an input field.
+
+Explicit stamp bounds apply to analytic/operation stamps and optional mesh
+resampling, not the initial mesh-to-level-set conversion or wisp deposition.
+The loader reports an error if specified bounds are enabled for an unstamped
+field or a wisp. Bounds clip the result, so leave room for displacement.
+Existing world-space bounds for planes and arithmetic operations and **Use
+Explicit Pyro Bounds** keep their original meaning and can further clip the
+field independently of stamp bounds.
+
+Existing Python LOPs keep their old spare parameters. After restarting Houdini,
+select one or more PhysVFX nodes and click **Refresh PhysVFX Parameters** on the
+PhysVFX shelf. Missing controls are added in a **PhysVFX Updates** tab without
+resetting existing values. This also exposes any older missing controls, such
+as **Use Explicit Pyro Bounds**. Newly created nodes already contain them.

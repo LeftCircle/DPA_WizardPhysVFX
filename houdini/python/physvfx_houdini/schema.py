@@ -41,6 +41,14 @@ COLOR = (
 STAMP = (
     P("stamp", "Stamp Field", "toggle", False,
       "Sample the result into a grid. Wisps and meshes are already grid-backed."),
+    P("use_stamp_voxel_size", "Override Density Voxel Size", "toggle", False),
+    P("stamp_voxel_size", "Object Density Voxel Size", "float", 0.025,
+      "Voxel size in stage units; overrides render settings for this object."),
+    P("use_stamp_bounds", "Use Specified Stamp Bounds", "toggle", False,
+      "Clip a stamped field to the world-axis-aligned box enclosing these local bounds."),
+    P("stamp_bounds_min", "Stamp Bounds Minimum (Local)", "vector", (-2.0, -2.0, -2.0)),
+    P("stamp_bounds_max", "Stamp Bounds Maximum (Local)", "vector", (2.0, 2.0, 2.0)),
+    P("show_stamp_bounds", "Show Stamp Bounds (Red)", "toggle", False),
     P("cache_name", "Stamp Cache Name", "string", "",
       "Optional unique cache key. Empty means no cache; delete old caches after edits."),
 )

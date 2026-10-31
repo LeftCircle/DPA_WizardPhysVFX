@@ -141,6 +141,24 @@ class AuthoringContractTests(unittest.TestCase):
                     self.assertEqual(prim.attrs['pbvfx:wispDots'].value, 100000)
                     self.assertIn('pbvfx:wispNoise2Translation', prim.attrs)
 
+    def test_stamp_controls_author_and_red_guide(self):
+        v = defaults('field')
+        v.update(path='/World/Thing', stamp=True, use_stamp_voxel_size=True,
+                 stamp_voxel_size=0.05, use_stamp_bounds=True,
+                 stamp_bounds_min=(-1, -2, -3), stamp_bounds_max=(1, 2, 3),
+                 show_stamp_bounds=True)
+        prim = author(self.stage, 'field', v)
+        self.assertEqual(prim.attrs['pbvfx:stampVoxelSize'].value, 0.05)
+        self.assertTrue(prim.attrs['pbvfx:useStampBounds'].value)
+        self.assertEqual(prim.attrs['pbvfx:stampBoundsMin'].value, (-1, -2, -3))
+        guide = self.stage.GetPrimAtPath('/World/Thing/__physvfx_stamp_bounds')
+        self.assertTrue(guide.attrs['pbvfx:preview'].value)
+        self.assertEqual(guide.attrs['primvars:displayColor'].value, [(1, 0, 0)])
+        self.assertEqual(min(p[2] for p in guide.attrs['Points'].value), -3)
+        v['show_stamp_bounds'] = False
+        author(self.stage, 'field', v)
+        self.assertEqual(guide.attrs['Visibility'].value, 'invisible')
+
     def test_preview_geometry_tracks_field_bounds_and_can_be_hidden(self):
         v = defaults('field'); v.update(kind='isf_torus', path='/World/Torus', majorRadius=2.0, minorRadius=0.5)
         prim = author(self.stage, 'field', v)

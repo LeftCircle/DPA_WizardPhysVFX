@@ -125,3 +125,30 @@ def create_node(kind, network=None, source=None):
     except Exception:
         node.destroy()
         raise
+
+
+def refresh_selected_nodes():
+    """Add missing PhysVFX parameters to selected nodes without replacing existing values."""
+    import hou
+    nodes = hou.selectedNodes()
+    if not nodes:
+        raise hou.OperationFailed('Select one or more PhysVFX nodes first.')
+    updated = 0
+    for node in nodes:
+        kind = node.userData('physvfx_node_kind')
+        if kind not in PARAMETERS:
+            continue
+        group = node.parmTemplateGroup()
+        missing = [spec for spec in parameters(kind) if group.find('pv_' + spec.name) is None]
+        if missing:
+            folder_name = 'pv_folder_updates'
+            suffix = 2
+            while group.find(folder_name) is not None:
+                folder_name = 'pv_folder_updates_' + str(suffix)
+                suffix += 1
+            group.append(hou.FolderParmTemplate(folder_name, 'PhysVFX Updates',
+                parm_templates=tuple(_template(hou, spec) for spec in missing)))
+            node.setParmTemplateGroup(group)
+        updated += 1
+    if not updated:
+        raise hou.OperationFailed('No selected nodes are PhysVFX nodes.')

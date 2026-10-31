@@ -5,7 +5,7 @@
     metersPerUnit = 1
     startTimeCode = 1
     subLayers = [
-        @../../../../houdini_projects/physvfx/usd/sopcreate1.usd@
+        @../../../../houdini_projects/physvfx/usd/sopcreate2.usd@
     ]
     timeCodesPerSecond = 24
     upAxis = "Y"

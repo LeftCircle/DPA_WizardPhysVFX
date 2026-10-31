@@ -357,6 +357,28 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(seen[0][1][0], 'noise')
         self.assertEqual(scene.objects[0].bounds_min, (-1, -1, -1))
 
+    def test_object_stamp_uses_local_bounds_and_voxel_override(self):
+        module, sphere, _, _, _, _ = fixture()
+        sphere.values.update({'pbvfx:stamp': True, 'pbvfx:stampVoxelSize': 0.2,
+            'pbvfx:useStampBounds': True, 'pbvfx:stampBoundsMin': (-1, -2, -3),
+            'pbvfx:stampBoundsMax': (1, 2, 3)})
+        module.fx.make_plane = lambda p, n: ('plane', p, n)
+        module.fx.intersection = lambda a, b: ('clip', a, b)
+        seen = []
+        module.fx.world_space_to_bounds = lambda *args: args
+        module.fx.stamp_grid_parallel = lambda *args: seen.append(args) or 'grid'
+        module.fx.make_grid_field = lambda value: ('grid', value)
+        scene = module.load_scene('scene')
+        # Stage-to-renderer units = 0.5, sphere transform is scale 2, translation (4,2,-1).
+        self.assertEqual(scene.objects[0].bounds_min, (1, -1, -3.5))
+        self.assertEqual(scene.objects[0].bounds_max, (3, 3, 2.5))
+        self.assertAlmostEqual(seen[0][0], 0.1)
+        self.assertEqual(seen[0][2][0], 'clip')
+        self.assertAlmostEqual(seen[0][3][0][0], 0.8)  # two voxels of padding
+        sphere.values['pbvfx:stampVoxelSize'] = -1
+        with self.assertRaises(ValueError):
+            module.load_scene('scene')
+
     def test_named_stamp_is_reused_and_unnamed_stamp_is_not_cached(self):
         module, sphere, _, _, _, _ = fixture()
         sphere.values.update({'pbvfx:stamp': True, 'pbvfx:cacheName': 'sphere_cache'})

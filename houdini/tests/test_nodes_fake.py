@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from physvfx_houdini.nodes import cook, create_node, read_values
+from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes
 from test_authoring_fake import Stage, fake_pxr
 from physvfx_houdini.schema import defaults
 
@@ -24,6 +24,8 @@ class Folder(Template):
 class TemplateGroup:
     def __init__(self): self.folders = []
     def append(self, folder): self.folders.append(folder)
+    def find(self, name):
+        return next((item for folder in self.folders for item in (folder, *folder.kwargs["parm_templates"]) if item._name == name), None)
 
 
 class Parm:
@@ -57,15 +59,16 @@ class Node:
                     raise RuntimeError('ColorSquares must use an RGBA naming scheme')
                 default = spec.kwargs.get('default_value')
                 if isinstance(default, tuple) and len(default) > 1:
-                    self.tuples[spec._name] = ParmTuple(default)
+                    self.tuples.setdefault(spec._name, ParmTuple(default))
                 else:
                     if isinstance(default, tuple): default = default[0]
-                    self.values[spec._name] = Parm(default)
+                    self.values.setdefault(spec._name, Parm(default))
     def parm(self, name): return self.values.get(name)
     def parmTuple(self, name): return self.tuples.get(name)
     def parms(self): return list(self.values.values())
     def setInput(self, index, node): self.inputs[index] = node
     def setUserData(self, name, value): self.user_data[name] = value
+    def userData(self, name): return self.user_data.get(name)
     def moveToGoodPosition(self): pass
     def setSelected(self, value, clear_all_selected=False): self.selected = value
     def setDisplayFlag(self, value): self.display = value
@@ -147,15 +150,33 @@ class NodeConstructionTests(unittest.TestCase):
             self.assertTrue(values['show_preview'])
             self.assertEqual(values['preview_wisp_radius'], 0.0)
 
+    def test_refresh_adds_missing_parameters_without_resetting_values(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('operation', network=network)
+            node.values['pv_input_a'].set('/World/Head')
+            for folder in node.groups.folders:
+                folder.kwargs['parm_templates'] = tuple(s for s in folder.kwargs['parm_templates']
+                                                       if s._name != 'pv_use_stamp_bounds')
+            node.values.pop('pv_use_stamp_bounds')
+            hou.selectedNodes = lambda: [node]
+            refresh_selected_nodes()
+            self.assertEqual(node.values['pv_input_a'].evalAsString(), '/World/Head')
+            self.assertIsNotNone(node.parm('pv_use_stamp_bounds'))
+            count = len(node.groups.folders)
+            refresh_selected_nodes()
+            self.assertEqual(len(node.groups.folders), count)
+
     def test_shelf_xml_references_all_tools(self):
         path = Path(__file__).resolve().parents[1] / 'toolbar' / 'physvfx.shelf'
         root = ET.parse(path).getroot()
         refs = {node.attrib['name'] for node in root.findall('./toolshelf/memberTool')}
         tools = {node.attrib['name'] for node in root.findall('./tool')}
         self.assertEqual(refs, tools)
-        self.assertEqual(len(tools), 5)
+        self.assertEqual(len(tools), 6)
         for script in root.findall('./tool/script'):
-            self.assertIn('physvfx_houdini.create_node(', script.text)
+            self.assertTrue('physvfx_houdini.create_node(' in script.text or
+                            'physvfx_houdini.refresh_selected_nodes()' in script.text)
 
 
 if __name__ == '__main__': unittest.main()

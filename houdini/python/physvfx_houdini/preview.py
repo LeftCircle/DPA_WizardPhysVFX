@@ -198,3 +198,50 @@ def author_preview(stage, prim, kind, values):
         'displayColor', Sdf.ValueTypeNames.Color3fArray, UsdGeom.Tokens.constant
     ).Set([Gf.Vec3f(0.2, 0.7, 1.0)])
     UsdGeom.Imageable(surface).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)
+
+
+def author_stamp_preview(stage, prim, values):
+    """Display the world-axis-aligned stamp box using a local child guide."""
+    from pxr import Gf, Sdf, Usd, UsdGeom
+    path = str(prim.GetPath()) + '/__physvfx_stamp_bounds'
+    proxy = stage.GetPrimAtPath(path)
+    if proxy:
+        marker = proxy.GetAttribute('pbvfx:preview')
+        if not marker or marker.Get() is not True or not proxy.IsA(UsdGeom.BasisCurves):
+            raise ValueError(f'{path}: reserved preview path is already in use')
+    if not values.get('show_stamp_bounds', False):
+        if proxy:
+            UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
+        return
+    lo = values.get('stamp_bounds_min', (-2, -2, -2))
+    hi = values.get('stamp_bounds_max', (2, 2, 2))
+    matrix = UsdGeom.XformCache(Usd.TimeCode.Default()).GetLocalToWorldTransform(prim)
+    det = float(matrix.GetDeterminant())
+    if not math.isfinite(det) or abs(det) < 1e-12:
+        raise ValueError('Cannot show stamp bounds with a singular transform')
+    world = [matrix.Transform(Gf.Vec3d(x, y, z)) for x in (lo[0], hi[0])
+             for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+    wlo = tuple(min(p[i] for p in world) for i in range(3))
+    whi = tuple(max(p[i] for p in world) for i in range(3))
+    inverse = matrix.GetInverse()
+    vertices = [inverse.Transform(Gf.Vec3d(x, y, z)) for z in (wlo[2], whi[2])
+                for y in (wlo[1], whi[1]) for x in (wlo[0], whi[0])]
+    edges = ((0,1),(2,3),(4,5),(6,7),(0,2),(1,3),(4,6),(5,7),
+             (0,4),(1,5),(2,6),(3,7))
+    if not proxy:
+        proxy = stage.DefinePrim(path, 'BasisCurves')
+    if not proxy:
+        raise ValueError(f'{path}: could not create stamp preview')
+    proxy.CreateAttribute('pbvfx:preview', Sdf.ValueTypeNames.Bool, custom=True).Set(True)
+    geom = UsdGeom.BasisCurves(proxy)
+    geom.CreateTypeAttr().Set(UsdGeom.Tokens.linear)
+    geom.CreateCurveVertexCountsAttr().Set([2] * 12)
+    geom.CreatePointsAttr().Set([Gf.Vec3f(*vertices[i]) for edge in edges for i in edge])
+    width = max(max(hi[i] - lo[i] for i in range(3)) * 0.005, 0.002)
+    geom.CreateWidthsAttr().Set([width])
+    geom.SetWidthsInterpolation(UsdGeom.Tokens.constant)
+    geom.CreateExtentAttr().Set([Gf.Vec3f(*(min(p[i] for p in vertices) - width for i in range(3))),
+                                 Gf.Vec3f(*(max(p[i] for p in vertices) + width for i in range(3)))])
+    UsdGeom.PrimvarsAPI(proxy).CreatePrimvar('displayColor', Sdf.ValueTypeNames.Color3fArray,
+                                            UsdGeom.Tokens.constant).Set([Gf.Vec3f(1, 0, 0)])
+    UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)

@@ -6,6 +6,7 @@
     <memberTool name="physvfx_camera"/>
     <memberTool name="physvfx_light"/>
     <memberTool name="physvfx_settings"/>
+    <memberTool name="physvfx_refresh"/>
   </toolshelf>
   <tool name="physvfx_field" label="PhysVFX Field" icon="LOP_python">
     <script scriptType="python"><![CDATA[import physvfx_houdini
@@ -26,5 +27,9 @@ physvfx_houdini.create_node('light')]]></script>
   <tool name="physvfx_settings" label="PhysVFX Render Settings" icon="LOP_python">
     <script scriptType="python"><![CDATA[import physvfx_houdini
 physvfx_houdini.create_node('settings')]]></script>
+  </tool>
+  <tool name="physvfx_refresh" label="Refresh PhysVFX Parameters" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.refresh_selected_nodes()]]></script>
   </tool>
 </shelfDocument>

@@ -1,12 +1,13 @@
 """Test the shelf/node wiring with a small HOM stand-in."""
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache
+from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view
 from test_authoring_fake import Stage, fake_pxr
 from physvfx_houdini.schema import defaults
 
@@ -103,7 +104,7 @@ class NodeConstructionTests(unittest.TestCase):
     def test_each_shelf_tool_creates_parameterized_python_lop(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):
-            for kind in ('shadow_cache', 'shadow_region', 'field', 'operation', 'camera', 'light', 'settings'):
+            for kind in ('render_view', 'shadow_cache', 'shadow_region', 'field', 'operation', 'camera', 'light', 'settings'):
                 with self.subTest(kind=kind):
                     node = create_node(kind, network=network)
                     self.assertEqual(read_values(node, kind), defaults(kind))
@@ -150,6 +151,56 @@ class NodeConstructionTests(unittest.TestCase):
             values = read_values(node, 'field')
             self.assertTrue(values['show_preview'])
             self.assertEqual(values['preview_wisp_radius'], 0.0)
+
+    def test_render_view_exports_stage_and_launches_worker(self):
+        hou = make_hou(); network = Network('lop')
+        hou.isUIAvailable = lambda: False
+        class FlatLayer:
+            def Export(self, path):
+                Path(path).write_text('#usda 1.0')
+                return True
+        stage = types.SimpleNamespace(Flatten=lambda: FlatLayer())
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'hou': hou}):
+            folder = Path(tmp) / 'project with spaces'; folder.mkdir()
+            script = folder / 'python' / 'usd_sphere_scene.py'
+            script.parent.mkdir(); script.write_text('')
+            viewer = folder / 'dpa_imgviewer'; viewer.write_text(''); viewer.chmod(0o755)
+            node = create_node('render_view', network=network)
+            node.values['pv_usd_path'].set(str(folder / 'output' / 'scene.usda'))
+            node.values['pv_image_path'].set(str(folder / 'output' / 'image.exr'))
+            node.values['pv_render_script'].set(str(script))
+            node.values['pv_viewer_path'].set(str(viewer))
+            node.stage = lambda: stage
+            with patch('subprocess.Popen') as popen:
+                render_and_view(node)
+                args, kwargs = popen.call_args
+                self.assertEqual((folder / 'output' / 'scene.usda').read_text(), '#usda 1.0')
+                self.assertIn(str(viewer), args[0])
+                self.assertIn(str(folder / 'output' / 'image.exr'), args[0])
+                self.assertIn(str(script), args[0])
+                self.assertEqual(kwargs['cwd'], str(folder))
+
+    def test_missing_viewer_does_not_export_or_start_render(self):
+        hou = make_hou(); network = Network('lop')
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'hou': hou}):
+            folder = Path(tmp); script = folder / 'render.py'; script.write_text('')
+            usd = folder / 'scene.usda'; usd.write_text('old stage')
+            node = create_node('render_view', network=network)
+            node.values['pv_usd_path'].set(str(usd))
+            node.values['pv_image_path'].set(str(folder / 'render.exr'))
+            node.values['pv_render_script'].set(str(script))
+            node.values['pv_viewer_path'].set(str(folder / 'missing_viewer'))
+            with patch('subprocess.Popen') as popen:
+                with self.assertRaisesRegex(hou.OperationFailed, 'viewer not found'):
+                    render_and_view(node)
+                popen.assert_not_called()
+            self.assertEqual(usd.read_text(), 'old stage')
+
+    def test_render_node_is_passthrough_on_cook(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('render_view', network=network)
+            cook(node, 'render_view')  # no editable stage is requested
 
     def test_cache_node_button_uses_final_stage_and_target(self):
         hou = make_hou(); network = Network('lop')
@@ -210,7 +261,7 @@ class NodeConstructionTests(unittest.TestCase):
         refs = {node.attrib['name'] for node in root.findall('./toolshelf/memberTool')}
         tools = {node.attrib['name'] for node in root.findall('./tool')}
         self.assertEqual(refs, tools)
-        self.assertEqual(len(tools), 8)
+        self.assertEqual(len(tools), 9)
         for script in root.findall('./tool/script'):
             self.assertTrue('physvfx_houdini.create_node(' in script.text or
                             'physvfx_houdini.refresh_selected_nodes()' in script.text)

@@ -8,6 +8,7 @@
     <memberTool name="physvfx_camera"/>
     <memberTool name="physvfx_light"/>
     <memberTool name="physvfx_settings"/>
+    <memberTool name="physvfx_render_view"/>
     <memberTool name="physvfx_refresh"/>
   </toolshelf>
   <tool name="physvfx_field" label="PhysVFX Field" icon="LOP_python">
@@ -41,5 +42,9 @@ physvfx_houdini.create_node('shadow_region')]]></script>
   <tool name="physvfx_shadow_cache" label="PhysVFX Shadow Cache" icon="LOP_python">
     <script scriptType="python"><![CDATA[import physvfx_houdini
 physvfx_houdini.create_node('shadow_cache')]]></script>
+  </tool>
+  <tool name="physvfx_render_view" label="PhysVFX Render and View" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.create_node('render_view')]]></script>
   </tool>
 </shelfDocument>

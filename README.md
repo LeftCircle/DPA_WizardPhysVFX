@@ -537,3 +537,8 @@ PYTHONPATH="$PWD/build/python:$PWD/python" python python/usd_sphere_scene.py \
 Geometry and field changes do not automatically invalidate shadow caches.
 Re-save affected maps after editing them. The cache records the loader's default
 USD time, not an animation sequence. See the [Houdini shadow-cache guide](houdini/README.md#shadow-region-disk-caches).
+
+
+In Solaris, the **PhysVFX Render and View** node saves a flattened USDA, runs
+`usd_sphere_scene.py` and opens the result in `dpa_imgviewer`. Configure the USD
+and image paths in the node. See the [Houdini guide](houdini/README.md#render-and-view).

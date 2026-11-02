@@ -70,6 +70,19 @@ def noise_fields(prefix, label):
 
 
 PARAMETERS = {
+    "render_view": (("Render and View", (
+        P("usd_path", "USD Save Path", "string", "$HIP/outputs/physvfx_scene.usda",
+          "The composed stage is saved here as a flattened USDA."),
+        P("image_path", "Image Save Path", "string", "$HIP/outputs/physvfx_render.exr"),
+        P("render_python", "Renderer Python", "string", "python3"),
+        P("render_script", "Renderer Script", "string", "",
+          "Optional path to python/usd_sphere_scene.py; blank uses the repository copy."),
+        P("viewer_path", "Image Viewer", "string", "",
+          "Optional executable path; blank finds dpa_imgviewer in the repository build directory."),
+        P("render_stamp_dir", "Stamp Cache Directory", "string", "cache"),
+        P("render_view", "Render and View", "button", None,
+          "Save the stage, render in the background and open the resulting image."),
+    )),),
     "shadow_cache": (("Shadow Cache", (
         P("region_path", "Shadow Region Prim Path", "string", "/World/ShadowRegion",
           "Path of an existing PhysVFX shadow region on the input stage."),

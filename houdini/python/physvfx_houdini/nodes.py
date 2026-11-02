@@ -4,6 +4,7 @@ from .author import AuthoringError, author
 
 
 NODE_LABELS = {
+    'render_view': 'PhysVFX Render and View',
     'shadow_cache': 'PhysVFX Shadow Cache',
     'shadow_region': 'PhysVFX Shadow Region',
     'field': 'PhysVFX Field',
@@ -18,8 +19,9 @@ def _template(hou, spec):
     name = 'pv_' + spec.name
     help_text = spec.help
     if spec.kind == 'button':
+        callback = 'render_and_view' if spec.name == 'render_view' else 'save_shadow_cache'
         return hou.ButtonParmTemplate(name, spec.label, help=help_text,
-            script_callback="import physvfx_houdini.nodes as n; n.save_shadow_cache(kwargs['node'])",
+            script_callback="import physvfx_houdini.nodes as n; n.%s(kwargs['node'])" % callback,
             script_callback_language=hou.scriptLanguage.Python)
     if spec.kind == 'menu':
         return hou.StringParmTemplate(name, spec.label, 1, default_value=(spec.default,),
@@ -72,6 +74,8 @@ def read_values(node, kind):
 def cook(node, kind):
     import hou
     try:
+        if kind == 'render_view':
+            return  # pass the upstream stage through unchanged
         values = read_values(node, kind)
         stage = node.editableStage()
         if stage is None:
@@ -212,3 +216,67 @@ def save_shadow_cache(node):
             raise hou.OperationFailed(f'Shadow cache failed (exit {result.returncode}); see the console for details.')
     if hou.isUIAvailable():
         hou.ui.displayMessage('Shadow maps saved. Enable Load from Disk to use the cache.')
+
+
+def render_and_view(node):
+    """Export this LOP's stage, then start the renderer and viewer in a worker."""
+    import os
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    import hou
+
+    v = read_values(node, 'render_view')
+    if not v['usd_path'].strip() or not v['image_path'].strip():
+        raise hou.OperationFailed('Set both USD Save Path and Image Save Path.')
+    usd = Path(v['usd_path']).expanduser().resolve()
+    image = Path(v['image_path']).expanduser().resolve()
+    if usd.suffix.lower() != '.usda':
+        raise hou.OperationFailed('USD Save Path must end in .usda.')
+    if not image.suffix or usd == image:
+        raise hou.OperationFailed('Choose a distinct Image Save Path with a file extension.')
+    script = Path(v['render_script']).expanduser().resolve() if v['render_script'].strip() else Path(__file__).resolve().parents[3] / 'python' / 'usd_sphere_scene.py'
+    if not script.is_file():
+        raise hou.OperationFailed('Set Renderer Script to your repository python/usd_sphere_scene.py.')
+    repo = script.resolve().parent.parent
+    if v['viewer_path'].strip():
+        viewer = Path(v['viewer_path']).expanduser().resolve()
+    else:
+        candidates = [repo / 'build' / 'DPA_ImageProcessing' / 'dpa_imgviewer',
+                      repo / 'build' / 'DPA_ImageProcessing' / 'dpa_image_viewer',
+                      repo / 'build' / 'dpa_imgviewer', repo / 'build' / 'dpa_image_viewer']
+        viewer = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), candidates[0])
+    if not viewer.is_file() or not os.access(viewer, os.X_OK):
+        raise hou.OperationFailed(f'Image viewer not found or not executable: {viewer}. Build dpa_imgviewer or set Image Viewer.')
+    if not v['render_python'].strip():
+        raise hou.OperationFailed('Set Renderer Python.')
+    stage = node.stage()
+    if stage is None:
+        raise hou.OperationFailed('Connect the complete Solaris scene to this node.')
+    try:
+        usd.parent.mkdir(parents=True, exist_ok=True)
+        image.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix='.physvfx_', suffix='.usda', dir=str(usd.parent))
+        os.close(fd)
+        try:
+            if not stage.Flatten().Export(temp_path):
+                raise hou.OperationFailed('Could not export the composed USD stage.')
+            os.replace(temp_path, usd)
+        finally:
+            if os.path.exists(temp_path): os.unlink(temp_path)
+    except OSError as exc:
+        raise hou.OperationFailed(f'Could not save the USD stage: {exc}') from exc
+    env = os.environ.copy()
+    env['PYTHONPATH'] = os.pathsep.join([str(repo / 'build' / 'python'), str(repo / 'python')] +
+        ([env['PYTHONPATH']] if env.get('PYTHONPATH') else []))
+    worker = Path(__file__).resolve().parent / 'render_worker.py'
+    command = [v['render_python'], '-u', str(worker), '--python', v['render_python'],
+               '--script', str(script), '--usd', str(usd), '--image', str(image),
+               '--viewer', str(viewer), '--cache-dir', v['render_stamp_dir']]
+    try:
+        subprocess.Popen(command, cwd=str(repo), env=env)
+    except OSError as exc:
+        raise hou.OperationFailed(f'Could not start renderer Python: {exc}') from exc
+    print(f'[PhysVFX] Saved {usd}; render started. Follow progress in the Houdini console.', flush=True)
+    if hou.isUIAvailable():
+        hou.ui.setStatusMessage('PhysVFX render started; see the Houdini console for progress.')

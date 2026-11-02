@@ -81,6 +81,7 @@ unless it is represented by a separate prim. Operations can be chained.
 | --- | --- |
 | **PhysVFX Field** | Select an existing prim or create one. Supports all eight analytic ISF types, a USD mesh, bounded plane, and wisp. Authors `pbvfx:isf_type` or `pbvfx:field_type`; mesh mode requires an existing `UsdGeomMesh` and leaves it untagged. |
 | **PhysVFX Shadow Region** | Creates a shadow region Xform and a red viewport guide. |
+| **PhysVFX Render and View** | Passes the scene through; saves a composed USDA, runs the renderer in the background, then opens the image viewer. |
 | **PhysVFX Shadow Cache** | Targets an existing region, saves its per-light shadow maps on demand, and enables disk-cache loading. |
 | **PhysVFX Operation** | `union`, `intersection`, `cutout`, `add`, `subtract`, `pyro`, and `noise_warp`. Authors `pbvfx:operation` and the ordered `pbvfx:inputs` relationship. Add, subtract, and noise warp clip to authored world-space bounds. |
 | **PhysVFX Camera** | Creates or edits a USD perspective Camera, authoring focal length, horizontal/vertical aperture, near/far clipping and zero aperture offsets. A toggleable green guide shows the near/far ray-distance boundaries. Place it with Houdini's transform tools. |
@@ -290,3 +291,31 @@ Existing PhysVFX LOPs retain their old interfaces. Restart Houdini and use the
 region LOP has an empty Python Code parameter, select it and use **Refresh
 PhysVFX Parameters**; this restores an empty generated script without replacing
 custom code. Recreate the region node if it lacks PhysVFX node metadata.
+
+
+### Render and view
+
+Select the final scene LOP and create a **PhysVFX Render and View** node from
+the shelf. Set **USD Save Path** (a `.usda` file) and **Image Save Path**, then
+click **Render and View**. The node exports its input stage as a flattened USD
+and starts `python/usd_sphere_scene.py` in a background process. Houdini stays
+responsive. The renderer's progress and errors appear in the Houdini console.
+After a successful render, the node opens `dpa_imgviewer -image <image>`. A
+failed render does not open the viewer or replace an existing image.
+
+The default viewer is `build/DPA_ImageProcessing/dpa_imgviewer`. Set **Image
+Viewer** if your build puts it elsewhere. Set **Renderer Python** to the Python
+executable with OpenUSD and the built `physics_vfx` module, and **Renderer
+Script** if the Houdini plugin is installed outside the repository. The node
+adds `build/python` and `python` under the renderer's repository to
+`PYTHONPATH`. **Stamp Cache Directory** is passed to the USD renderer; shadow
+cache settings are read from the scene. Relative stamp cache directories are
+resolved from the renderer repository. Build the viewer and extension first:
+
+```bash
+cmake -S . -B build
+cmake --build build --parallel
+```
+
+Do not launch concurrent renders to the same USD and image paths. The node
+uses the USD loader's default time; this is not a frame-sequence renderer.

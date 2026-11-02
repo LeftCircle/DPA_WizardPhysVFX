@@ -44,6 +44,14 @@ class HoudiniLOPTests(unittest.TestCase):
         guide = stage.GetPrimAtPath('/World/ShadowHead/__physvfx_bounds')
         self.assertEqual(tuple(guide.GetAttribute('primvars:displayColor').Get()[0]), (1, 0, 0))
 
+    def test_render_view_lop_passes_stage_and_has_button(self):
+        camera = self.add('camera')
+        node = self.add('render_view', camera)
+        self.assertTrue(node.stage().GetPrimAtPath('/World/Camera'))
+        self.assertIsNotNone(node.parm('pv_render_view'))
+        self.assertIsNotNone(node.parm('pv_usd_path'))
+        self.assertIsNotNone(node.parm('pv_image_path'))
+
     def test_node_chain_authors_composed_usd(self):
         camera = self.add('camera')
         light = self.add('light', camera)

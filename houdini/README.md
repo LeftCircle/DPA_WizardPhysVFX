@@ -80,6 +80,8 @@ unless it is represented by a separate prim. Operations can be chained.
 | Shelf tool | Parameters and authored USD |
 | --- | --- |
 | **PhysVFX Field** | Select an existing prim or create one. Supports all eight analytic ISF types, a USD mesh, bounded plane, and wisp. Authors `pbvfx:isf_type` or `pbvfx:field_type`; mesh mode requires an existing `UsdGeomMesh` and leaves it untagged. |
+| **PhysVFX Shadow Region** | Creates a shadow region Xform and a red viewport guide. |
+| **PhysVFX Shadow Cache** | Targets an existing region, saves its per-light shadow maps on demand, and enables disk-cache loading. |
 | **PhysVFX Operation** | `union`, `intersection`, `cutout`, `add`, `subtract`, `pyro`, and `noise_warp`. Authors `pbvfx:operation` and the ordered `pbvfx:inputs` relationship. Add, subtract, and noise warp clip to authored world-space bounds. |
 | **PhysVFX Camera** | Creates or edits a USD perspective Camera, authoring focal length, horizontal/vertical aperture, near/far clipping and zero aperture offsets. A toggleable green guide shows the near/far ray-distance boundaries. Place it with Houdini's transform tools. |
 | **PhysVFX Light** | Creates or edits a USD SphereLight's color, intensity, exposure, and optional `pbvfx:shadowKappa`. Place it with Houdini's transform tools. |
@@ -235,7 +237,7 @@ as **Use Explicit Pyro Bounds**. Newly created nodes already contain them.
 
 Use **PhysVFX Shadow Region** in Solaris to place one or more boxes around the
 volumes that need shadow maps. Each node authors an Xform with local minimum and
-maximum bounds and a viewport-only orange guide. Place/transform the prim with
+maximum bounds and a viewport-only red guide. Place/transform the prim with
 normal USD layout tools. The renderer uses the world-axis-aligned box enclosing
 the transformed local box, so a rotated guide can enclose a larger region.
 
@@ -246,3 +248,45 @@ gets a map in each region. Rays integrate through the union of all regions,
 including separate regions farther toward the light; gaps are skipped and
 overlaps are counted once. Regions do not crop the main camera render. This
 only limits the CPU USD renderer's shadow-map work, not the CUDA render paths.
+
+
+### Shadow region disk caches
+
+Create a **PhysVFX Shadow Cache** LOP downstream of a **PhysVFX Shadow Region**
+LOP; it is a separate node and authors cache settings onto the target region.
+When the region node is selected, the shelf tool fills in its prim path. If
+adding the cache after a merge, set **Shadow Region Prim Path** manually. Add a
+cache node per region, and give every region a distinct USD prim path.
+
+1. In the cache node, set **Shadow Cache Directory** to an absolute writable
+   directory and, if necessary, set **Renderer Python** and **Renderer Script**
+   to the Python and `python/usd_sphere_scene.py` used for rendering.
+2. Set the display flag on the final scene LOP after all geometry, regions,
+   cache nodes, lights, camera and render settings, or enter its absolute path
+   in **Final Scene LOP**. The final stage must include this cache node.
+3. Click **Save to Disk**. It exports a temporary composed stage and computes a
+   grid per light for this region without rendering an image. Progress and any
+   subprocess errors go to the Houdini console; Houdini waits for it to finish.
+4. Enable **Load from Disk** and export/render the final stage as usual. Missing
+   or incompatible requested caches produce an error. With the toggle off,
+   rendering builds the maps in memory and does not save them.
+
+The external renderer must have OpenUSD and the built `physics_vfx` module. The
+button prepends the repository's `build/python` and `python` to `PYTHONPATH`.
+Set **Stamp Cache Directory** to match `--cache-dir` in the normal render. The
+USD loader uses its default time; this is not an animated frame cache. Each save
+creates a new generation and atomically replaces the manifest only after all
+grids are written; old generations may be removed manually.
+
+The manifest checks all region bounds, light positions and shadow coefficients,
+shadow voxel size and shadow step. **Changes to geometry, field operations or
+stamp caches are not automatically detected.** Re-save each affected region
+when these change. A region can shadow another region, so edits may require
+re-saving multiple caches. With no authored regions, the usual scene-wide map
+is built and no explicit region cache is used.
+
+Existing PhysVFX LOPs retain their old interfaces. Restart Houdini and use the
+**PhysVFX Shadow Cache** shelf tool to create the new cache node. If an existing
+region LOP has an empty Python Code parameter, select it and use **Refresh
+PhysVFX Parameters**; this restores an empty generated script without replacing
+custom code. Recreate the region node if it lacks PhysVFX node metadata.

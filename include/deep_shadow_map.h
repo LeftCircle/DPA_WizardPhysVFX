@@ -5,6 +5,7 @@
 #include "openvdb_helpers.h"
 #include <algorithm>
 #include <cmath>
+#include <random>
 #include <stdexcept>
 #include <utility>
 #include <vector>

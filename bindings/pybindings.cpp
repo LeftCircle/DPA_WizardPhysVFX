@@ -6,6 +6,7 @@ ChatGPT mini
 
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -111,9 +112,22 @@ PYBIND11_MODULE(physics_vfx, module)
         py::arg("light_position"), py::arg("light_color"), py::arg("light_shadow_kappa"),
         py::arg("settings"), py::arg("filename"));
 
-    module.def("render_usd_scene", &render_usd_scene, py::arg("density"), py::arg("color"),
-        py::arg("camera"), py::arg("lights"), py::arg("settings"), py::arg("bounds_min"),
-        py::arg("bounds_max"), py::arg("filename"), py::arg("shadow_regions") = std::vector<ShadowRegion>{}, py::call_guard<py::gil_scoped_release>());
+    module.def("render_usd_scene", [](const vspf& density, const vspc& color, const Camera& camera,
+        const std::vector<PointLight>& lights, const RenderSettings& settings, const Vector& lo,
+        const Vector& hi, const std::string& filename, const std::vector<ShadowRegion>& regions,
+        const std::vector<std::vector<std::optional<FloatGridHandle>>>& caches) {
+            std::vector<std::vector<GridPtr<float>>> grids;
+            for (const auto& row : caches) {
+                std::vector<GridPtr<float>> converted;
+                for (const auto& item : row) converted.push_back(item ? item->grid : nullptr);
+                grids.push_back(std::move(converted));
+            }
+            py::gil_scoped_release release;
+            render_usd_scene(density, color, camera, lights, settings, lo, hi, filename, regions, grids);
+        }, py::arg("density"), py::arg("color"), py::arg("camera"), py::arg("lights"),
+        py::arg("settings"), py::arg("bounds_min"), py::arg("bounds_max"), py::arg("filename"),
+        py::arg("shadow_regions") = std::vector<ShadowRegion>{},
+        py::arg("cached_shadow_grids") = std::vector<std::vector<std::optional<FloatGridHandle>>>{});
 
     py::class_<Color>(module, "Color")
         .def(py::init<>())
@@ -513,6 +527,17 @@ PYBIND11_MODULE(physics_vfx, module)
         return ColorGridHandle{stamp_grid_parallel<Color>(voxel_size, GridTypes<Color>::to_grid(background),
             [field](const Vector& p) { return field->eval(p); }, [](const Color&) { return true; }, bounds, filename)};
     }, py::arg("voxel_size"), py::arg("background"), py::arg("field"), py::arg("bounds"), py::arg("filename") = "");
+    module.def("make_shadow_region_grid", [](const vspf& density, float voxel_size,
+        const ShadowRegion& region, const PointLight& light, float step,
+        const std::vector<ShadowRegion>& regions) {
+            if (!density || !std::isfinite(voxel_size) || voxel_size <= 0 || !std::isfinite(step) || step <= 0)
+                throw py::value_error("Invalid shadow grid settings");
+            openvdb::initialize();
+            auto bounds = world_space_to_bounds(region.first, region.second, voxel_size);
+            py::gil_scoped_release release;
+            return FloatGridHandle{make_dsm_grid_in_regions(density, voxel_size, bounds, light, step, light.kappa, regions)};
+        }, py::arg("density"), py::arg("voxel_size"), py::arg("region"), py::arg("light"),
+           py::arg("step"), py::arg("regions"));
     module.def("load_float_grid", [](const std::string& filename) {
         openvdb::initialize();
         openvdb::io::File file(filename);

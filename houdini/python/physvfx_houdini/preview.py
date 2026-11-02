@@ -170,7 +170,7 @@ def author_preview(stage, prim, kind, values):
                                  Gf.Vec3f(*(x + width / 2 for x in hi))])
     UsdGeom.PrimvarsAPI(proxy).CreatePrimvar(
         'displayColor', Sdf.ValueTypeNames.Color3fArray, UsdGeom.Tokens.constant
-    ).Set([Gf.Vec3f(1.0, 0.65, 0.1)])
+    ).Set([Gf.Vec3f(*( (1.0, 0.0, 0.0) if kind == 'shadow_region' else (1.0, 0.65, 0.1) ))])
     UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)
     from .preview_surface import ISF_KINDS, polygonize
     # A native USD sphere already provides an exact viewport surface unless

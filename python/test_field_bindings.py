@@ -1,5 +1,7 @@
 """Exercise the supported Python field and noise bindings."""
 import math
+import tempfile
+from pathlib import Path
 import unittest
 
 import physics_vfx as fx
@@ -128,6 +130,33 @@ class FieldBindingsTests(unittest.TestCase):
         self.assertAlmostEqual(color.blue, 0.6, places=5)
         with self.assertRaises(ValueError):
             fx.FloatGrid(0)
+
+    def test_shadow_region_grid_cache_roundtrip(self):
+        density = fx.negate(fx.mask(fx.isf_sphere(self.origin, 1)))
+        region = (fx.Vector(-1.5, -1.5, -1.5), fx.Vector(1.5, 1.5, 1.5))
+        light = fx.PointLight(fx.Color(1, 1, 1), fx.Vector(0, 0, 3), 1)
+        grid = fx.make_shadow_region_grid(density, 0.5, region, light, 0.25, [region])
+        self.assertLess(grid.get_value(0, 0, 0), 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'shadow.vdb')
+            fx.save_to_disk(grid, path)
+            restored = fx.load_float_grid(path)
+            self.assertAlmostEqual(restored.get_value(0, 0, 0), grid.get_value(0, 0, 0), places=5)
+            camera = fx.Camera()
+            camera.set_eye_view_up(fx.Vector(0, 0, 4), fx.Vector(0, 0, -1), fx.Vector(0, 1, 0))
+            camera.set_fov(45); camera.set_aspect_ratio(1)
+            settings = fx.RenderSettings()
+            settings.width = settings.height = 4
+            settings.near_dist, settings.far_dist = 0.1, 10
+            settings.min_step = settings.max_step = 0.2
+            settings.shadow_step = 0.25
+            settings.density_voxel_size = settings.color_voxel_size = settings.shadow_voxel_size = 0.5
+            field = fx.isf_sphere(self.origin, 1)
+            color = fx.make_scene_color_field([field], [fx.Color(1, 1, 1)])
+            output = str(Path(tmp) / 'cached.exr')
+            fx.render_usd_scene(density, color, camera, [light], settings, region[0], region[1],
+                                output, [region], [[restored]])
+            self.assertTrue(Path(output).is_file())
 
     def test_noise_warp_samples_displaced_position(self):
         plane = fx.make_plane(self.origin, fx.Vector(0, 1, 0))

@@ -4,6 +4,7 @@ from .author import AuthoringError, author
 
 
 NODE_LABELS = {
+    'shadow_cache': 'PhysVFX Shadow Cache',
     'shadow_region': 'PhysVFX Shadow Region',
     'field': 'PhysVFX Field',
     'operation': 'PhysVFX Operation',
@@ -16,6 +17,10 @@ NODE_LABELS = {
 def _template(hou, spec):
     name = 'pv_' + spec.name
     help_text = spec.help
+    if spec.kind == 'button':
+        return hou.ButtonParmTemplate(name, spec.label, help=help_text,
+            script_callback="import physvfx_houdini.nodes as n; n.save_shadow_cache(kwargs['node'])",
+            script_callback_language=hou.scriptLanguage.Python)
     if spec.kind == 'menu':
         return hou.StringParmTemplate(name, spec.label, 1, default_value=(spec.default,),
             menu_items=tuple(item[0] for item in spec.choices),
@@ -44,6 +49,9 @@ def read_values(node, kind):
     values = {}
     for spec in parameters(kind):
         name = 'pv_' + spec.name
+        if spec.kind == 'button':
+            values[spec.name] = None
+            continue
         if spec.kind in ('vector', 'vector2', 'color', 'int2'):
             parm = node.parmTuple(name)
             values[spec.name] = tuple(parm.eval()) if parm is not None else spec.default
@@ -107,6 +115,10 @@ def create_node(kind, network=None, source=None):
                 parm_templates=tuple(_template(hou, spec) for spec in specs))
             group.append(folder)
         node.setParmTemplateGroup(group)
+        if kind == 'shadow_cache' and source is not None and source.userData('physvfx_node_kind') == 'shadow_region':
+            source_path = source.parm('pv_path')
+            if source_path is not None:
+                node.parm('pv_region_path').set(source_path.evalAsString())
         code_parm = node.parm('python')
         if code_parm is None:
             # The displayed label is stable even if a Houdini release renames
@@ -141,6 +153,9 @@ def refresh_selected_nodes():
             continue
         group = node.parmTemplateGroup()
         missing = [spec for spec in parameters(kind) if group.find('pv_' + spec.name) is None]
+        code_parm = node.parm('python')
+        if code_parm is not None and not code_parm.evalAsString().strip():
+            code_parm.set("import hou\nfrom physvfx_houdini import cook\ncook(hou.pwd(), %r)\n" % kind)
         if missing:
             folder_name = 'pv_folder_updates'
             suffix = 2
@@ -153,3 +168,47 @@ def refresh_selected_nodes():
         updated += 1
     if not updated:
         raise hou.OperationFailed('No selected nodes are PhysVFX nodes.')
+
+def save_shadow_cache(node):
+    """Export the final stage and invoke the external renderer for one region."""
+    import os
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    import hou
+
+    values = read_values(node, 'shadow_cache')
+    requested = values['cache_scene_lop'].strip()
+    scene_node = hou.node(requested) if requested else node.parent().displayNode()
+    if scene_node is None:
+        raise hou.OperationFailed('Set Final Scene LOP or select a display node with the complete scene.')
+    stage = scene_node.stage()
+    if stage is None or not stage.GetPrimAtPath(values['region_path']):
+        raise hou.OperationFailed('The final scene stage must contain this shadow region.')
+    region = stage.GetPrimAtPath(values['region_path'])
+    cache_dir = region.GetAttribute('pbvfx:shadowCacheDir')
+    if not cache_dir or cache_dir.Get() != values['shadow_cache_dir'].strip():
+        raise hou.OperationFailed('Final Scene LOP must include this cache node and its cache directory.')
+    script = Path(values['cache_renderer_script']) if values['cache_renderer_script'] else Path(__file__).resolve().parents[3] / 'python' / 'usd_sphere_scene.py'
+    if not script.is_file():
+        raise hou.OperationFailed('Set Renderer Script to your repository python/usd_sphere_scene.py.')
+    if not values['shadow_cache_dir'].strip():
+        raise hou.OperationFailed('Set a Shadow Cache Directory first.')
+    repo = script.resolve().parent.parent
+    env = os.environ.copy()
+    extra = [str(repo / 'build' / 'python'), str(repo / 'python')]
+    env['PYTHONPATH'] = os.pathsep.join(extra + ([env['PYTHONPATH']] if env.get('PYTHONPATH') else []))
+    with tempfile.TemporaryDirectory(prefix='physvfx_shadow_') as tmp:
+        usd = str(Path(tmp) / 'scene.usda')
+        if not stage.Flatten().Export(usd):
+            raise hou.OperationFailed('Could not export the composed scene for shadow caching.')
+        command = [values['cache_python'], str(script), usd, '--save-shadow-cache', values['region_path'],
+                   '--cache-dir', values['cache_stamp_dir']]
+        try:
+            result = subprocess.run(command, env=env, check=False)
+        except OSError as exc:
+            raise hou.OperationFailed(f'Could not start renderer Python: {exc}') from exc
+        if result.returncode:
+            raise hou.OperationFailed(f'Shadow cache failed (exit {result.returncode}); see the console for details.')
+    if hou.isUIAvailable():
+        hou.ui.displayMessage('Shadow maps saved. Enable Load from Disk to use the cache.')

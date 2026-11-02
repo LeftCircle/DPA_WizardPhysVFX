@@ -417,7 +417,22 @@ def author_shadow_region(stage, v):
     return prim
 
 
-AUTHORS = {'shadow_region': author_shadow_region, 'field': author_field, 'operation': author_operation, 'camera': author_camera,
+def author_shadow_cache(stage, v):
+    path = _path(v['region_path'], 'Shadow region path')
+    prim = stage.GetPrimAtPath(path)
+    if not prim or _tag(prim, 'shadowRegion') is not True:
+        raise AuthoringError(f'{path}: select an existing PhysVFX shadow region')
+    directory = str(v['shadow_cache_dir']).strip()
+    if not directory:
+        raise AuthoringError('Set a shadow cache directory')
+    if prim.IsInstanceProxy():
+        raise AuthoringError(f'{path}: cannot cache an instance proxy')
+    _attr(prim, 'shadowCacheLoad', 'Bool', bool(v['shadow_cache_load']))
+    _attr(prim, 'shadowCacheDir', 'String', directory)
+    return prim
+
+
+AUTHORS = {'shadow_cache': author_shadow_cache, 'shadow_region': author_shadow_region, 'field': author_field, 'operation': author_operation, 'camera': author_camera,
            'light': author_light, 'settings': author_settings}
 
 

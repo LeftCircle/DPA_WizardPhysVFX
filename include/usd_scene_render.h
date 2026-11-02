@@ -14,6 +14,7 @@ namespace lux {
 void render_usd_scene(const vspf& density, const vspc& color, const Camera& camera,
     const std::vector<PointLight>& lights, const RenderSettings& settings,
     const Vector& bounds_min, const Vector& bounds_max, const std::string& filename,
-    const std::vector<ShadowRegion>& shadow_regions = {});
+    const std::vector<ShadowRegion>& shadow_regions = {},
+    const std::vector<std::vector<GridPtr<float>>>& cached_shadow_grids = {});
 
 }

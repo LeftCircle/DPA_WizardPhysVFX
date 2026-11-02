@@ -167,6 +167,18 @@ class AuthoringContractTests(unittest.TestCase):
         self.assertEqual(prim.attrs['pbvfx:shadowBoundsMin'].value, (-1,-2,-3))
         guide = self.stage.GetPrimAtPath('/World/Shadow/__physvfx_bounds')
         self.assertTrue(guide.attrs['pbvfx:preview'].value)
+        self.assertEqual(guide.attrs['primvars:displayColor'].value, [(1.0, 0.0, 0.0)])
+
+    def test_shadow_cache_node_targets_existing_region(self):
+        region_values = defaults('shadow_region'); region_values['path'] = '/World/Shadow'
+        region = author(self.stage, 'shadow_region', region_values)
+        v = defaults('shadow_cache')
+        v.update(region_path='/World/Shadow', shadow_cache_dir='/tmp/shadow', shadow_cache_load=True)
+        author(self.stage, 'shadow_cache', v)
+        self.assertEqual(region.attrs['pbvfx:shadowCacheDir'].value, '/tmp/shadow')
+        self.assertTrue(region.attrs['pbvfx:shadowCacheLoad'].value)
+        v['region_path'] = '/World/Absent'
+        with self.assertRaises(AuthoringError): author(self.stage, 'shadow_cache', v)
 
     def test_preview_geometry_tracks_field_bounds_and_can_be_hidden(self):
         v = defaults('field'); v.update(kind='isf_torus', path='/World/Torus', majorRadius=2.0, minorRadius=0.5)

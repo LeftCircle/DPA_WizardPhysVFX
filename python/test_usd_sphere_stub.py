@@ -396,6 +396,74 @@ class TranslationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.get_shadow_regions(stage)
 
+    def test_shadow_cache_explicit_save_load_and_invalidation(self):
+        module, _, _, _, _, calls = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        events = []
+        with tempfile.TemporaryDirectory() as temp:
+            region = Prim(None, '/region', {'pbvfx:shadowRegion': True,
+                'pbvfx:shadowCacheDir': temp, 'pbvfx:shadowCacheLoad': False})
+            stage.Traverse = lambda: original + [region]
+            module.fx.make_shadow_region_grid = lambda *args: events.append(('build', args)) or 'grid'
+            module.fx.save_to_disk = lambda grid, path: (events.append(('save', path)), Path(path).write_text('grid'))
+            module.fx.load_float_grid = lambda path: events.append(('load', path)) or 'loaded'
+            scene = module.load_scene('scene')
+            scene.render('out.exr')
+            self.assertEqual(events, [])
+            scene.save_shadow_cache('/region')
+            self.assertEqual([e[0] for e in events], ['build', 'save'])
+            region.values['pbvfx:shadowCacheLoad'] = True
+            scene = module.load_scene('scene')
+            scene.render('out.exr')
+            self.assertEqual(events[-1][0], 'load')
+            self.assertEqual(calls[-1][-1], [['loaded']])
+            scene.settings.shadow_step *= 2
+            with self.assertRaisesRegex(ValueError, 'settings or lights changed'):
+                scene.render('out.exr')
+            Path(scene._cache_manifest_path(0)).unlink()
+            with self.assertRaisesRegex(ValueError, 'cannot read shadow cache'):
+                scene.render('out.exr')
+
+    def test_shadow_caches_are_separate_per_region_and_light(self):
+        module, _, _, light, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        other_light = Prim(Light, '/light2', dict(light.values), Matrix((10, 4, 5)))
+        with tempfile.TemporaryDirectory() as temp:
+            a = Prim(None, '/a', {'pbvfx:shadowRegion': True, 'pbvfx:shadowCacheDir': temp})
+            b = Prim(None, '/b', {'pbvfx:shadowRegion': True, 'pbvfx:shadowCacheDir': temp}, Matrix((6,0,0)))
+            stage.Traverse = lambda: original + [other_light, a, b]
+            generated = []
+            module.fx.make_shadow_region_grid = lambda *args: generated.append(args) or 'grid'
+            module.fx.save_to_disk = lambda grid, path: Path(path).write_text('grid')
+            scene = module.load_scene('scene')
+            scene.save_shadow_cache('/a')
+            scene.save_shadow_cache('/b')
+            self.assertEqual(len(generated), 4)
+            self.assertEqual(len(list(Path(temp).glob('*.json'))), 2)
+            self.assertEqual(len(list(Path(temp).glob('*.vdb'))), 4)
+            self.assertEqual(len(generated[0][-1]), 2)
+
+    def test_shadow_cache_atomic_manifest_keeps_previous_on_failure(self):
+        module, _, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        with tempfile.TemporaryDirectory() as temp:
+            region = Prim(None, '/region', {'pbvfx:shadowRegion': True, 'pbvfx:shadowCacheDir': temp})
+            stage.Traverse = lambda: original + [region]
+            module.fx.make_shadow_region_grid = lambda *args: 'grid'
+            module.fx.save_to_disk = lambda grid, path: Path(path).write_text('old')
+            scene = module.load_scene('scene')
+            scene.save_shadow_cache('/region')
+            manifest = scene._cache_manifest_path(0)
+            old = manifest.read_text()
+            def fail(*args): raise RuntimeError('write failed')
+            module.fx.save_to_disk = fail
+            with self.assertRaisesRegex(RuntimeError, 'write failed'):
+                scene.save_shadow_cache('/region')
+            self.assertEqual(manifest.read_text(), old)
+
     def test_named_stamp_is_reused_and_unnamed_stamp_is_not_cached(self):
         module, sphere, _, _, _, _ = fixture()
         sphere.values.update({'pbvfx:stamp': True, 'pbvfx:cacheName': 'sphere_cache'})

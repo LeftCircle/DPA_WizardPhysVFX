@@ -522,3 +522,18 @@ regions, and stop after the last ray intersection or the light, whichever is
 closer. Volumes outside all regions do not cast shadows, and points outside all
 regions receive unattenuated light. Overlapping maps use the first region in
 stage traversal order for lookup. See [the Houdini guide](houdini/README.md#shadow-map-regions).
+
+
+A separate **PhysVFX Shadow Cache** Solaris node can save a region's per-light
+shadow maps and optionally load them in subsequent renders. The node authors
+`pbvfx:shadowCacheDir` and `pbvfx:shadowCacheLoad` on the target region. A cache
+is produced explicitly by **Save to Disk**, or from a USD stage with:
+
+```bash
+PYTHONPATH="$PWD/build/python:$PWD/python" python python/usd_sphere_scene.py \
+  scene.usda --save-shadow-cache /World/ShadowRegion --cache-dir cache
+```
+
+Geometry and field changes do not automatically invalidate shadow caches.
+Re-save affected maps after editing them. The cache records the loader's default
+USD time, not an animation sequence. See the [Houdini shadow-cache guide](houdini/README.md#shadow-region-disk-caches).

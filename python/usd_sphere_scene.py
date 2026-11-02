@@ -1,5 +1,8 @@
 """Translate USD stages into PhysVFX settings, cameras, lights and fields."""
 import argparse
+import hashlib
+import json
+import uuid
 import math
 import os
 import re
@@ -708,6 +711,8 @@ class Scene:
     bounds_min: tuple
     bounds_max: tuple
     shadow_regions: list
+    shadow_cache_specs: list
+    shadow_light_paths: list
 
     @property
     def camera(self): return self.camera_info.native
@@ -738,9 +743,86 @@ class Scene:
 
     def render(self, filename):
         with _timed(f'Render scene and write {filename}'):
-            fx.render_usd_scene(self.density, self.color, self.camera, self.lights,
-                                self.settings, _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename),
-                                [(_fxvec(a), _fxvec(b)) for a, b in self.shadow_regions])
+            args = [self.density, self.color, self.camera, self.lights, self.settings,
+                    _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename),
+                    [(_fxvec(a), _fxvec(b)) for a, b in self.shadow_regions]]
+            if any(spec['load'] for spec in self.shadow_cache_specs):
+                args.append(self.load_shadow_caches())
+            fx.render_usd_scene(*args)
+
+    def _shadow_cache_metadata(self, index):
+        return {'format': 1, 'region': self.shadow_cache_specs[index]['path'],
+                'regions': [[list(a), list(b)] for a, b in self.shadow_regions],
+                'voxel_size': self.settings.shadow_voxel_size,
+                'step': self.settings.shadow_step,
+                'lights': [{'path': path, 'position': [light.position.x, light.position.y, light.position.z],
+                            'kappa': light.kappa}
+                           for path, light in zip(self.shadow_light_paths, self.lights)]}
+
+    def _cache_manifest_path(self, index):
+        spec = self.shadow_cache_specs[index]
+        if not spec['directory']:
+            raise ValueError(f"{spec['path']}: set a shadow cache directory")
+        key = hashlib.sha256(spec['path'].encode('utf-8')).hexdigest()[:20]
+        return Path(spec['directory']) / ('region_' + key + '.json')
+
+    def save_shadow_cache(self, region_path):
+        matches = [i for i, spec in enumerate(self.shadow_cache_specs) if spec['path'] == region_path]
+        if len(matches) != 1:
+            raise ValueError(f'{region_path}: shadow region not found')
+        if not self.lights:
+            raise ValueError('Cannot cache a shadow region without lights')
+        index = matches[0]
+        manifest_path = self._cache_manifest_path(index)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata = self._shadow_cache_metadata(index)
+        generation = uuid.uuid4().hex
+        region_key = manifest_path.stem
+        paths = []
+        regions = [(_fxvec(a), _fxvec(b)) for a, b in self.shadow_regions]
+        for light_index, light in enumerate(self.lights):
+            filename = f'{region_key}_{generation}_{light_index}.vdb'
+            target = manifest_path.parent / filename
+            with _timed(f'Create shadow cache {region_path}, light {light_index + 1}/{len(self.lights)}'):
+                grid = fx.make_shadow_region_grid(self.density, self.settings.shadow_voxel_size,
+                                                  regions[index], light, self.settings.shadow_step, regions)
+                fx.save_to_disk(grid, str(target))
+            paths.append(filename)
+        metadata['files'] = paths
+        fd, temp = tempfile.mkstemp(prefix=region_key + '_', suffix='.json.tmp', dir=str(manifest_path.parent))
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+                json.dump(metadata, stream, sort_keys=True)
+            os.replace(temp, manifest_path)
+        finally:
+            if os.path.exists(temp): os.unlink(temp)
+        _progress(f'Saved shadow cache {region_path}: {manifest_path}')
+
+    def load_shadow_caches(self):
+        rows = []
+        for i, spec in enumerate(self.shadow_cache_specs):
+            if not spec['load']:
+                rows.append([None] * len(self.lights))
+                continue
+            manifest_path = self._cache_manifest_path(i)
+            try:
+                with manifest_path.open(encoding='utf-8') as stream:
+                    actual = json.load(stream)
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"{spec['path']}: cannot read shadow cache {manifest_path}; use Save to Disk") from exc
+            if not isinstance(actual, dict):
+                raise ValueError(f"{spec['path']}: invalid shadow cache manifest")
+            files = actual.pop('files', None)
+            if actual != self._shadow_cache_metadata(i) or not isinstance(files, list) or len(files) != len(self.lights):
+                raise ValueError(f"{spec['path']}: shadow cache settings or lights changed; save again")
+            row = []
+            for filename in files:
+                if not isinstance(filename, str) or not re.fullmatch(r'region_[0-9a-f]{20}_[0-9a-f]{32}_[0-9]+\.vdb', filename):
+                    raise ValueError(f"{spec['path']}: invalid shadow cache file name")
+                with _timed(f'Load shadow cache {spec["path"]} ({filename})'):
+                    row.append(fx.load_float_grid(str(manifest_path.parent / filename)))
+            rows.append(row)
+        return rows
 
 
 def get_shadow_regions(stage, volume_meters_per_unit=1.0):
@@ -792,26 +874,37 @@ def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache"):
     padding = 3 * max(settings.density_voxel_size, settings.color_voxel_size, settings.shadow_voxel_size)
     bounds_min = tuple(min(obj.bounds_min[i] for obj in objects) - padding for i in range(3))
     bounds_max = tuple(max(obj.bounds_max[i] for obj in objects) + padding for i in range(3))
+    specs = [{'path': str(p.GetPath()), 'load': bool(_custom(p, 'shadowCacheLoad', False)),
+              'directory': str(_custom(p, 'shadowCacheDir', ''))}
+             for p in stage.Traverse() if _custom(p, 'shadowRegion', False)]
+    light_paths = [str(p.GetPath()) for p in stage.Traverse() if p.IsA(UsdLux.SphereLight)]
     return Scene(settings, camera, lights, objects, sdf, density, color, bounds_min, bounds_max,
-                 get_shadow_regions(stage, volume_meters_per_unit))
+                 get_shadow_regions(stage, volume_meters_per_unit), specs, light_paths)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scene', help='USD scene (.usd, .usda or .usdc)')
-    parser.add_argument('--output', required=True, help='Output image path, e.g. sphere.exr')
+    parser.add_argument('--output', help='Output image path, e.g. sphere.exr')
+    parser.add_argument('--save-shadow-cache', metavar='REGION_PRIM_PATH', help='Build and save only this region’s shadow maps')
     parser.add_argument('--volume-meters-per-unit', type=float, default=1.0)
     parser.add_argument('--cache-dir', default='cache', help='Directory for named stamp caches (default: cache)')
     args = parser.parse_args(argv)
     _progress(f'Starting USD render: {args.scene}')
     start = time.perf_counter()
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
+    if not args.output and not args.save_shadow_cache:
+        parser.error('provide --output or --save-shadow-cache')
     try:
-        load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir).render(output)
+        scene = load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir)
+        if args.save_shadow_cache:
+            scene.save_shadow_cache(args.save_shadow_cache)
+        if args.output:
+            output = Path(args.output)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            scene.render(output)
     except (ValueError, RuntimeError) as exc:
         parser.exit(1, f'error: {exc}\n')
-    _progress(f'Wrote {output}; total time {time.perf_counter() - start:.2f}s')
+    _progress(f'Completed in {time.perf_counter() - start:.2f}s')
 
 
 if __name__ == '__main__':

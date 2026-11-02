@@ -62,7 +62,8 @@ void write_image(const ImageData& image, const std::string& filename) {
 void render_usd_scene(const vspf& density, const vspc& color, const Camera& camera,
     const std::vector<PointLight>& lights, const RenderSettings& rs,
     const Vector& lo, const Vector& hi, const std::string& filename,
-    const std::vector<ShadowRegion>& authored_regions)
+    const std::vector<ShadowRegion>& authored_regions,
+    const std::vector<std::vector<GridPtr<float>>>& cached_shadow_grids)
 {
     const auto positive = [](float v) { return std::isfinite(v) && v > 0.0f; };
     if (!density || !color || filename.empty() || rs.width <= 0 || rs.height <= 0 ||
@@ -89,6 +90,14 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
             region.first.Z() >= region.second.Z()) throw std::invalid_argument("Invalid shadow region");
     }
 
+    if (!cached_shadow_grids.empty()) {
+        if (cached_shadow_grids.size() != regions.size())
+            throw std::invalid_argument("Shadow cache region count mismatch");
+        for (const auto& grids : cached_shadow_grids)
+            if (grids.size() != lights.size())
+                throw std::invalid_argument("Shadow cache light count mismatch");
+    }
+
     RayMarcher marcher;
     marcher.set_snear(rs.near_dist);
     marcher.set_sfar(rs.far_dist);
@@ -110,7 +119,12 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
             std::cout << "[PhysVFX] " << label << ", region " << (j+1) << "/" << regions.size() << ": starting" << std::endl;
             auto region_start = Clock::now();
             auto bounds = world_space_to_bounds(regions[j].first, regions[j].second, rs.get_shadow_vs());
-            auto grid = make_dsm_grid_in_regions(density, rs.get_shadow_vs(), bounds, light, rs.shadow_step, light.kappa, regions);
+            auto grid = cached_shadow_grids.empty() ? nullptr : cached_shadow_grids[j][i];
+            if (grid) {
+                std::cout << "[PhysVFX] " << label << ", region " << (j+1) << ": using disk cache" << std::endl;
+            } else {
+                grid = make_dsm_grid_in_regions(density, rs.get_shadow_vs(), bounds, light, rs.shadow_step, light.kappa, regions);
+            }
             maps.push_back(make_deep_shadow_map(grid));
             report_elapsed(label + ", region " + std::to_string(j+1), region_start);
         }

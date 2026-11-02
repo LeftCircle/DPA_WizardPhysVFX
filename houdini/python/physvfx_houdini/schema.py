@@ -70,6 +70,21 @@ def noise_fields(prefix, label):
 
 
 PARAMETERS = {
+    "shadow_cache": (("Shadow Cache", (
+        P("region_path", "Shadow Region Prim Path", "string", "/World/ShadowRegion",
+          "Path of an existing PhysVFX shadow region on the input stage."),
+        P("shadow_cache_dir", "Shadow Cache Directory", "string", "$HIP/physvfx_shadow_cache"),
+        P("shadow_cache_load", "Load from Disk", "toggle", False,
+          "Use saved shadow maps at render time; fail if missing or incompatible."),
+        P("cache_scene_lop", "Final Scene LOP", "string", "",
+          "Optional final scene node; blank uses this network's display node."),
+        P("cache_python", "Renderer Python", "string", "python3"),
+        P("cache_stamp_dir", "Stamp Cache Directory", "string", "cache"),
+        P("cache_renderer_script", "Renderer Script", "string", "",
+          "Optional path to python/usd_sphere_scene.py."),
+        P("save_shadow_cache", "Save to Disk", "button", None,
+          "Build and save this region's shadow maps from the final scene."),
+    )),),
     "shadow_region": (("Shadow Region", (
         P("path", "Region Prim Path", "string", "/World/ShadowRegion"),
         P("bounds_min", "Local Minimum", "vector", (-1.0, -1.0, -1.0)),

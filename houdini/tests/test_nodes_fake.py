@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes
+from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache
 from test_authoring_fake import Stage, fake_pxr
 from physvfx_houdini.schema import defaults
 
@@ -90,9 +90,10 @@ def make_hou():
     hou.selectedNodes = lambda: []
     hou.OperationFailed = type('OperationFailed', (Exception,), {})
     hou.NodeError = type('NodeError', (Exception,), {})
+    hou.scriptLanguage = types.SimpleNamespace(Python='python')
     hou.parmLook = types.SimpleNamespace(ColorSquare='color')
     hou.parmNamingScheme = types.SimpleNamespace(RGBA='rgba')
-    for name in ('StringParmTemplate', 'IntParmTemplate', 'ToggleParmTemplate', 'FloatParmTemplate'):
+    for name in ('StringParmTemplate', 'IntParmTemplate', 'ToggleParmTemplate', 'FloatParmTemplate', 'ButtonParmTemplate'):
         setattr(hou, name, Template)
     hou.FolderParmTemplate = Folder
     return hou
@@ -102,7 +103,7 @@ class NodeConstructionTests(unittest.TestCase):
     def test_each_shelf_tool_creates_parameterized_python_lop(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):
-            for kind in ('field', 'operation', 'camera', 'light', 'settings'):
+            for kind in ('shadow_cache', 'shadow_region', 'field', 'operation', 'camera', 'light', 'settings'):
                 with self.subTest(kind=kind):
                     node = create_node(kind, network=network)
                     self.assertEqual(read_values(node, kind), defaults(kind))
@@ -150,6 +151,42 @@ class NodeConstructionTests(unittest.TestCase):
             self.assertTrue(values['show_preview'])
             self.assertEqual(values['preview_wisp_radius'], 0.0)
 
+    def test_cache_node_button_uses_final_stage_and_target(self):
+        hou = make_hou(); network = Network('lop')
+        hou.isUIAvailable = lambda: False
+        class FlatLayer:
+            def Export(self, path):
+                Path(path).write_text('composed stage')
+                return True
+        region = types.SimpleNamespace(GetAttribute=lambda key: types.SimpleNamespace(Get=lambda: '/tmp/shadow'))
+        stage = types.SimpleNamespace(GetPrimAtPath=lambda path: region, Flatten=lambda: FlatLayer())
+        with patch.dict(sys.modules, {'hou': hou}):
+            source = create_node('shadow_region', network=network)
+            source.values['pv_path'].set('/World/ShadowHead')
+            node = create_node('shadow_cache', network=network, source=source)
+            self.assertEqual(node.parm('pv_region_path').evalAsString(), '/World/ShadowHead')
+            node.values['pv_shadow_cache_dir'].set('/tmp/shadow')
+            network.displayNode = lambda: types.SimpleNamespace(stage=lambda: stage)
+            with patch('subprocess.run', return_value=types.SimpleNamespace(returncode=0)) as run:
+                save_shadow_cache(node)
+                args, kwargs = run.call_args
+                self.assertIn('--save-shadow-cache', args[0])
+                self.assertIn('/World/ShadowHead', args[0])
+                self.assertIn('--cache-dir', args[0])
+                self.assertFalse(kwargs['check'])
+
+    def test_refresh_restores_empty_script_but_keeps_custom_script(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('shadow_region', network=network)
+            node.parm('python').set('')
+            hou.selectedNodes = lambda: [node]
+            refresh_selected_nodes()
+            self.assertIn("cook(hou.pwd(), 'shadow_region')", node.parm('python').value)
+            node.parm('python').set('custom script')
+            refresh_selected_nodes()
+            self.assertEqual(node.parm('python').value, 'custom script')
+
     def test_refresh_adds_missing_parameters_without_resetting_values(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):
@@ -173,7 +210,7 @@ class NodeConstructionTests(unittest.TestCase):
         refs = {node.attrib['name'] for node in root.findall('./toolshelf/memberTool')}
         tools = {node.attrib['name'] for node in root.findall('./tool')}
         self.assertEqual(refs, tools)
-        self.assertEqual(len(tools), 7)
+        self.assertEqual(len(tools), 8)
         for script in root.findall('./tool/script'):
             self.assertTrue('physvfx_houdini.create_node(' in script.text or
                             'physvfx_houdini.refresh_selected_nodes()' in script.text)

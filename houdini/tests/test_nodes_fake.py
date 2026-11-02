@@ -1,5 +1,7 @@
 """Test the shelf/node wiring with a small HOM stand-in."""
 import sys
+import io
+from contextlib import redirect_stderr
 import tempfile
 import types
 import unittest
@@ -7,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view
+from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, _resolve_renderer_python, _monitor_render_worker
 from test_authoring_fake import Stage, fake_pxr
 from physvfx_houdini.schema import defaults
 
@@ -171,9 +173,10 @@ class NodeConstructionTests(unittest.TestCase):
             node.values['pv_render_script'].set(str(script))
             node.values['pv_viewer_path'].set(str(viewer))
             node.stage = lambda: stage
-            with patch('subprocess.Popen') as popen:
+            with patch('subprocess.Popen') as popen, patch('physvfx_houdini.nodes._monitor_render_worker') as monitor:
                 render_and_view(node)
                 args, kwargs = popen.call_args
+                monitor.assert_called_once_with(popen.return_value)
                 self.assertEqual((folder / 'output' / 'scene.usda').read_text(), '#usda 1.0')
                 self.assertIn(str(viewer), args[0])
                 self.assertIn(str(folder / 'output' / 'image.exr'), args[0])
@@ -183,6 +186,51 @@ class NodeConstructionTests(unittest.TestCase):
                 node.values['pv_progressive_preview'].set(True)
                 render_and_view(node)
                 self.assertIn('--progressive', popen.call_args.args[0])
+
+    def test_rejects_extension_module_as_renderer_python_before_export(self):
+        hou = make_hou(); network = Network('lop')
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'hou': hou}):
+            folder = Path(tmp); script = folder / 'render.py'; script.write_text('')
+            viewer = folder / 'viewer'; viewer.write_text(''); viewer.chmod(0o755)
+            extension = folder / 'physics_vfx.cpython-312-x86_64-linux-gnu.so'
+            extension.write_text('fake'); extension.chmod(0o755)
+            usd = folder / 'scene.usda'; usd.write_text('old stage')
+            node = create_node('render_view', network=network)
+            node.values['pv_usd_path'].set(str(usd))
+            node.values['pv_image_path'].set(str(folder / 'render.exr'))
+            node.values['pv_render_script'].set(str(script))
+            node.values['pv_viewer_path'].set(str(viewer))
+            node.values['pv_render_python'].set(str(extension))
+            with patch('subprocess.Popen') as popen:
+                with self.assertRaisesRegex(hou.OperationFailed, 'interpreter executable'):
+                    render_and_view(node)
+                popen.assert_not_called()
+            self.assertEqual(usd.read_text(), 'old stage')
+
+    def test_shadow_cache_rejects_extension_as_renderer_python(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('shadow_cache', network=network)
+            node.values['pv_cache_python'].set('/tmp/physics_vfx.cpython-312-x86_64-linux-gnu.so')
+            with patch('subprocess.run') as run:
+                with self.assertRaisesRegex(hou.OperationFailed, 'interpreter executable'):
+                    save_shadow_cache(node)
+                run.assert_not_called()
+
+    def test_renderer_python_resolution_and_worker_crash_reporting(self):
+        hou = make_hou()
+        with patch.dict(sys.modules, {'hou': hou}):
+            self.assertTrue(Path(_resolve_renderer_python(sys.executable)).is_file())
+            with self.assertRaisesRegex(hou.OperationFailed, 'not found or not executable'):
+                _resolve_renderer_python('/no/such/python')
+            with self.assertRaisesRegex(hou.OperationFailed, 'not the interpreter'):
+                _resolve_renderer_python('/path/to/physics_vfx.so')
+            stream = io.StringIO()
+            with redirect_stderr(stream):
+                thread = _monitor_render_worker(types.SimpleNamespace(wait=lambda: -11))
+                thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+            self.assertIn('signal 11', stream.getvalue())
 
     def test_missing_viewer_does_not_export_or_start_render(self):
         hou = make_hou(); network = Network('lop')

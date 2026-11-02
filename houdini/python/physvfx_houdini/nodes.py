@@ -173,6 +173,52 @@ def refresh_selected_nodes():
     if not updated:
         raise hou.OperationFailed('No selected nodes are PhysVFX nodes.')
 
+
+def _resolve_renderer_python(value):
+    """Resolve an executable without confusing a Python extension for Python."""
+    import os
+    import re
+    import shutil
+    import hou
+
+    candidate = os.path.expanduser(str(value).strip())
+    guidance = ('Renderer Python must be a Python interpreter executable, such as python3 '
+                'or /path/to/venv/bin/python. The physics_vfx .so is an importable module, '
+                'not the interpreter.')
+    if not candidate:
+        raise hou.OperationFailed(guidance)
+    if re.search(r'\.(?:so(?:\.\d+)*|pyd|dll|dylib)$', candidate, re.IGNORECASE):
+        raise hou.OperationFailed(guidance)
+    resolved = shutil.which(candidate)
+    if not resolved:
+        raise hou.OperationFailed(f'Renderer Python executable not found or not executable: {candidate}. {guidance}')
+    if re.search(r'\.(?:so(?:\.\d+)*|pyd|dll|dylib)$', os.path.realpath(resolved), re.IGNORECASE):
+        raise hou.OperationFailed(guidance)
+    # Keep venv symlinks intact: resolving them can change Python's environment.
+    return os.path.abspath(resolved)
+
+
+def _monitor_render_worker(process):
+    """Report an early child crash without blocking Houdini's interface."""
+    import sys
+    import threading
+
+    def report():
+        try:
+            code = process.wait()
+            if code:
+                reason = f'signal {-code}' if code < 0 else f'exit code {code}'
+                print(f'[PhysVFX] Render worker ended with {reason}; check the preceding console output. '
+                      'Verify Renderer Python is the interpreter for the built extension and OpenUSD.',
+                      file=sys.stderr, flush=True)
+        except Exception as exc:
+            print(f'[PhysVFX] Could not monitor render worker: {exc}', file=sys.stderr, flush=True)
+
+    thread = threading.Thread(target=report, name='physvfx-render-monitor', daemon=True)
+    thread.start()
+    return thread
+
+
 def save_shadow_cache(node):
     """Export the final stage and invoke the external renderer for one region."""
     import os
@@ -182,6 +228,7 @@ def save_shadow_cache(node):
     import hou
 
     values = read_values(node, 'shadow_cache')
+    renderer_python = _resolve_renderer_python(values['cache_python'])
     requested = values['cache_scene_lop'].strip()
     scene_node = hou.node(requested) if requested else node.parent().displayNode()
     if scene_node is None:
@@ -206,7 +253,7 @@ def save_shadow_cache(node):
         usd = str(Path(tmp) / 'scene.usda')
         if not stage.Flatten().Export(usd):
             raise hou.OperationFailed('Could not export the composed scene for shadow caching.')
-        command = [values['cache_python'], str(script), usd, '--save-shadow-cache', values['region_path'],
+        command = [renderer_python, str(script), usd, '--save-shadow-cache', values['region_path'],
                    '--cache-dir', values['cache_stamp_dir']]
         try:
             result = subprocess.run(command, env=env, check=False)
@@ -248,8 +295,7 @@ def render_and_view(node):
         viewer = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), candidates[0])
     if not viewer.is_file() or not os.access(viewer, os.X_OK):
         raise hou.OperationFailed(f'Image viewer not found or not executable: {viewer}. Build dpa_imgviewer or set Image Viewer.')
-    if not v['render_python'].strip():
-        raise hou.OperationFailed('Set Renderer Python.')
+    renderer_python = _resolve_renderer_python(v['render_python'])
     stage = node.stage()
     if stage is None:
         raise hou.OperationFailed('Connect the complete Solaris scene to this node.')
@@ -270,15 +316,17 @@ def render_and_view(node):
     env['PYTHONPATH'] = os.pathsep.join([str(repo / 'build' / 'python'), str(repo / 'python')] +
         ([env['PYTHONPATH']] if env.get('PYTHONPATH') else []))
     worker = Path(__file__).resolve().parent / 'render_worker.py'
-    command = [v['render_python'], '-u', str(worker), '--python', v['render_python'],
+    command = [renderer_python, '-u', str(worker), '--python', renderer_python,
                '--script', str(script), '--usd', str(usd), '--image', str(image),
                '--viewer', str(viewer), '--cache-dir', v['render_stamp_dir']]
     if v['progressive_preview']:
         command.append('--progressive')
     try:
-        subprocess.Popen(command, cwd=str(repo), env=env)
+        process = subprocess.Popen(command, cwd=str(repo), env=env)
     except OSError as exc:
         raise hou.OperationFailed(f'Could not start renderer Python: {exc}') from exc
-    print(f'[PhysVFX] Saved {usd}; render started. Follow progress in the Houdini console.', flush=True)
+    _monitor_render_worker(process)
+    print(f'[PhysVFX] Saved {usd}; render worker launched with {renderer_python}. '
+          'Follow progress and errors in the Houdini console.', flush=True)
     if hou.isUIAvailable():
-        hou.ui.setStatusMessage('PhysVFX render started; see the Houdini console for progress.')
+        hou.ui.setStatusMessage('PhysVFX render worker launched; see the Houdini console for progress.')

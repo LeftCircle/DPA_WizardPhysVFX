@@ -272,7 +272,9 @@ cache node per region, and give every region a distinct USD prim path.
    or incompatible requested caches produce an error. With the toggle off,
    rendering builds the maps in memory and does not save them.
 
-The external renderer must have OpenUSD and the built `physics_vfx` module. The
+The external renderer must have OpenUSD and the built `physics_vfx` module.
+For **Renderer Python**, specify the interpreter executable (such as `python3`
+or a virtual environment's `bin/python`), not the `physics_vfx*.so` module. The
 button prepends the repository's `build/python` and `python` to `PYTHONPATH`.
 Set **Stamp Cache Directory** to match `--cache-dir` in the normal render. The
 USD loader uses its default time; this is not an animated frame cache. Each save
@@ -299,15 +301,19 @@ Select the final scene LOP and create a **PhysVFX Render and View** node from
 the shelf. Set **USD Save Path** (a `.usda` file) and **Image Save Path**, then
 click **Render and View**. The node exports its input stage as a flattened USD
 and starts `python/usd_sphere_scene.py` in a background process. Houdini stays
-responsive. The renderer's progress and errors appear in the Houdini console.
+responsive. The renderer's progress and errors appear in the Houdini console;
+an unexpected worker exit is reported there with its exit code or signal.
 With progressive preview off, the node opens `dpa_imgviewer -image <image>`
 after a successful render. A failed render does not replace an existing image;
 with progressive preview on, a viewer may already be displaying partial work.
 
 The default viewer is `build/DPA_ImageProcessing/dpa_imgviewer`. Set **Image
 Viewer** if your build puts it elsewhere. Set **Renderer Python** to the Python
-executable with OpenUSD and the built `physics_vfx` module, and **Renderer
-Script** if the Houdini plugin is installed outside the repository. The node
+interpreter executable with OpenUSD (for example `python3` or
+`/path/to/venv/bin/python`). Do not enter `physics_vfx.cpython-*.so`: that is a
+module imported by Python, not an executable. The interpreter's Python version
+must match the built extension. Set **Renderer Script** if the Houdini plugin
+is installed outside the repository. The node
 adds `build/python` and `python` under the renderer's repository to
 `PYTHONPATH`. **Stamp Cache Directory** is passed to the USD renderer; shadow
 cache settings are read from the scene. Relative stamp cache directories are

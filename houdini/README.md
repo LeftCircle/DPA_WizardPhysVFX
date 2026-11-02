@@ -329,11 +329,14 @@ cmake --build build --parallel
 
 Enable **Progressive Preview** to open one viewer window after the first pass.
 The CPU renderer publishes ten passes at 10%, 20%, …, 100% of the image's
-width and height. Every published image retains the final dimensions; pixels
-not yet sampled are transparent black. Samples from earlier passes are reused.
-The viewer watches one temporary preview file and refreshes automatically. The
-final image path is replaced only after the complete render succeeds. The
-preview file is removed after the viewer closes.
+width and height. Every published image retains the final dimensions. Missing
+pixels are filled by bilinear interpolation from neighboring sampled pixels,
+including alpha; true sampled values (including transparent black) are kept.
+Samples from earlier passes are reused, and interpolation is applied only to a
+separate preview, never to the accumulated samples or final render. The viewer
+watches one temporary preview file and refreshes automatically. The final image
+path is replaced only after the complete render succeeds. The preview file is
+removed after the viewer closes.
 
 Existing Render and View nodes need **Refresh PhysVFX Parameters** to expose
 this new toggle. Rebuild both the Python extension and `dpa_imgviewer` after
@@ -343,5 +346,9 @@ View again. Scene loading, field stamping and shadow-map creation happen before
 the first pass, so complex scenes may still take time to show the first image.
 Shadow-region caches can reduce repeated shadow-map work.
 
-Do not launch concurrent renders to the same USD and image paths. The node
-uses the USD loader's default time; this is not a frame-sequence renderer.
+Click **Render and View** again on the same node to stop its current render and
+viewer before starting a new render from the latest scene. If a render is
+cancelled, the previous completed image stays on disk until the replacement
+finishes. Different Render and View nodes can still run concurrently; use
+different USD and image paths for those nodes. The node uses the USD loader's
+default time; this is not a frame-sequence renderer.

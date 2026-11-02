@@ -548,7 +548,8 @@ For a progressive preview, enable **Progressive Preview** on the Solaris
 Render and View node, or supply `--preview-image /path/preview.exr` alongside
 `--output /path/final.exr` to `python/usd_sphere_scene.py`. Each of ten passes
 atomically replaces the same preview file. The image always has the final
-resolution, and unsampled pixels are transparent black. To watch a manually
+resolution; missing pixels are interpolated from neighboring samples for the
+preview only. The fully sampled final render is unaffected. To watch a manually
 created preview, start the viewer after the first pass exists:
 
 ```bash
@@ -558,3 +559,8 @@ build/DPA_ImageProcessing/dpa_imgviewer -image /path/preview.exr --watch
 The preview is a progressive render of a saved scene, not an automatically
 updating Solaris viewport; scene setup and shadow maps are computed before the
 first pass.
+
+
+Clicking **Render and View** again on the same Houdini node stops its active
+render before starting a new one with the current scene. A cancelled render
+does not replace the previous completed image.

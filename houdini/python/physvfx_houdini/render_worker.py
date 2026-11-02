@@ -1,6 +1,8 @@
 """Background renderer started by the Solaris Render and View node."""
 import argparse
+import glob
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -34,6 +36,7 @@ def render_progressively(python, script, usd, image, viewer, cache_dir):
     os.close(output_fd)
     preview = None
     viewer_proc = None
+    renderer = None
     viewer_attempted = False
     try:
         preview_fd, preview = tempfile.mkstemp(prefix='.physvfx_preview_', suffix=image.suffix, dir=str(image.parent))
@@ -68,8 +71,31 @@ def render_progressively(python, script, usd, image, viewer, cache_dir):
         if viewer_proc is not None:
             viewer_proc.wait()
     finally:
+        for child in (renderer, viewer_proc):
+            if child is not None and child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
         for path in (output, preview):
             if path and os.path.exists(path): os.unlink(path)
+        if preview:
+            preview_path = Path(preview)
+            # A cancelled native writer may leave its own uniquely named
+            # atomic-write temporary file behind.
+            pattern = glob.escape('.' + preview_path.stem + '.physvfx_') + '*' + glob.escape(preview_path.suffix)
+            for partial in preview_path.parent.glob(pattern):
+                partial.unlink(missing_ok=True)
+
+
+class RenderCancelled(Exception):
+    pass
+
+
+def _cancel_on_signal(signum, frame):
+    raise RenderCancelled()
 
 
 def main(argv=None):
@@ -78,9 +104,13 @@ def main(argv=None):
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--progressive', action='store_true')
     args = parser.parse_args(argv)
+    signal.signal(signal.SIGTERM, _cancel_on_signal)
     try:
         renderer = render_progressively if args.progressive else render_and_view
         renderer(args.python, args.script, args.usd, args.image, args.viewer, args.cache_dir)
+    except RenderCancelled:
+        print('[PhysVFX] Render cancelled.', flush=True)
+        return 130
     except (OSError, RuntimeError) as exc:
         print(f'[PhysVFX] Render and View failed: {exc}', file=sys.stderr, flush=True)
         return 1

@@ -3,6 +3,9 @@ from .schema import PARAMETERS, parameters
 from .author import AuthoringError, author
 
 
+# Running background render workers keyed by their Houdini node path.
+_render_jobs = {}
+
 NODE_LABELS = {
     'render_view': 'PhysVFX Render and View',
     'shadow_cache': 'PhysVFX Shadow Cache',
@@ -206,7 +209,7 @@ def _monitor_render_worker(process):
     def report():
         try:
             code = process.wait()
-            if code:
+            if code and not getattr(process, '_physvfx_cancelled', False):
                 reason = f'signal {-code}' if code < 0 else f'exit code {code}'
                 print(f'[PhysVFX] Render worker ended with {reason}; check the preceding console output. '
                       'Verify Renderer Python is the interpreter for the built extension and OpenUSD.',
@@ -276,6 +279,48 @@ def save_shadow_cache(node):
         hou.ui.displayMessage('Shadow maps saved. Enable Load from Disk to use the cache.')
 
 
+
+def _cancel_previous_render(node):
+    """Stop a prior job from this node before writing its scene again."""
+    import os
+    import signal
+    import subprocess
+    import hou
+
+    key = node.path()
+    previous = _render_jobs.pop(key, None)
+    if previous is None or previous.poll() is not None:
+        return
+    previous._physvfx_cancelled = True
+    print(f'[PhysVFX] Stopping previous render from {key}.', flush=True)
+    try:
+        try:
+            if os.name == 'posix':
+                # The worker is a session leader; its renderer and preview viewer
+                # share this group, so no superseded renderer can keep writing.
+                os.killpg(previous.pid, signal.SIGTERM)
+            elif os.name == 'nt':
+                # Terminating only the worker on Windows would leave its renderer running.
+                subprocess.run(['taskkill', '/PID', str(previous.pid), '/T', '/F'],
+                               check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            else:
+                previous.terminate()
+        except ProcessLookupError:
+            pass  # The previous worker exited between poll and signal.
+        try:
+            previous.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            if os.name == 'posix':
+                os.killpg(previous.pid, signal.SIGKILL)
+            else:
+                previous.kill()
+            previous.wait(timeout=5)
+    except (OSError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
+        previous._physvfx_cancelled = False
+        _render_jobs[key] = previous
+        raise hou.OperationFailed(f'Could not stop the previous render: {exc}') from exc
+
+
 def render_and_view(node):
     """Export this LOP's stage, then start the renderer and viewer in a worker."""
     import os
@@ -310,6 +355,7 @@ def render_and_view(node):
     stage = node.stage()
     if stage is None:
         raise hou.OperationFailed('Connect the complete Solaris scene to this node.')
+    _cancel_previous_render(node)
     try:
         usd.parent.mkdir(parents=True, exist_ok=True)
         image.parent.mkdir(parents=True, exist_ok=True)
@@ -331,9 +377,11 @@ def render_and_view(node):
     if v['progressive_preview']:
         command.append('--progressive')
     try:
-        process = subprocess.Popen(command, cwd=str(repo), env=env)
+        process = subprocess.Popen(command, cwd=str(repo), env=env,
+                                   start_new_session=(os.name == 'posix'))
     except OSError as exc:
         raise hou.OperationFailed(f'Could not start renderer Python: {exc}') from exc
+    _render_jobs[node.path()] = process
     _monitor_render_worker(process)
     print(f'[PhysVFX] Saved {usd}; render worker launched with {renderer_python}. '
           'Follow progress and errors in the Houdini console.', flush=True)

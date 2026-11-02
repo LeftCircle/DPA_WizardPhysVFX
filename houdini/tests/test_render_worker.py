@@ -1,5 +1,9 @@
 """Exercise render/view sequencing with real child processes and fake programs."""
 import sys
+import os
+import signal
+import subprocess
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,6 +46,7 @@ class RenderWorkerTests(unittest.TestCase):
                 def wait(self):
                     seen.append(Path(self.preview).read_text())
                     return 0
+                def poll(self): return 0
             def intercept(args, *a, **kw):
                 if args[0] == 'viewer':
                     starts.append(args)
@@ -75,6 +80,44 @@ class RenderWorkerTests(unittest.TestCase):
             self.assertEqual(output.read_text(), 'old image')
             self.assertEqual(list(directory.glob('.physvfx_preview_*')), [])
             self.assertEqual(list(directory.glob('.physvfx_render_*')), [])
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process-group cancellation')
+    def test_cancel_stops_renderer_and_preserves_previous_image(self):
+        worker = Path(__file__).resolve().parents[1] / 'python' / 'physvfx_houdini' / 'render_worker.py'
+        for progressive in (False, True):
+            with self.subTest(progressive=progressive), tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp); marker = directory / 'started'; script = directory / 'slow.py'
+                script.write_text('import pathlib, sys, time\n'
+                    'if "--preview-image" in sys.argv:\n'
+                    ' p=pathlib.Path(sys.argv[sys.argv.index("--preview-image")+1])\n'
+                    ' p.write_text("preview")\n'
+                    ' (p.parent / ("."+p.stem+".physvfx_123_0"+p.suffix)).write_text("partial")\n'
+                    'pathlib.Path(' + repr(str(marker)) + ').write_text("started")\n'
+                    'time.sleep(60)\n')
+                output = directory / 'image.exr'; output.write_text('old image')
+                command = [sys.executable, '-u', str(worker), '--python', sys.executable,
+                           '--script', str(script), '--usd', 'scene.usda', '--image', str(output),
+                           '--viewer', 'viewer', '--cache-dir', 'cache']
+                if progressive: command.append('--progressive')
+                proc = subprocess.Popen(command, start_new_session=True, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True)
+                try:
+                    deadline = time.monotonic() + 5
+                    while not marker.exists() and proc.poll() is None and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                    self.assertTrue(marker.exists(), 'renderer did not start')
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    output_text, _ = proc.communicate(timeout=5)
+                    self.assertEqual(proc.returncode, 130, output_text)
+                    self.assertIn('Render cancelled', output_text)
+                    self.assertEqual(output.read_text(), 'old image')
+                    self.assertEqual(list(directory.glob('.physvfx_render_*')), [])
+                    self.assertEqual(list(directory.glob('.physvfx_preview_*')), [])
+                    self.assertEqual(list(directory.glob('..physvfx_preview_*')), [])
+                finally:
+                    if proc.poll() is None:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                        proc.communicate(timeout=5)
 
     def test_failed_render_keeps_previous_image_and_does_not_open_viewer(self):
         with tempfile.TemporaryDirectory() as tmp:

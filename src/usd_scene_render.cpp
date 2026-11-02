@@ -14,6 +14,8 @@
 #include "image_data.h"
 #include "openvdb_helpers.h"
 #include "ray_marcher.h"
+#include "progressive_sampling.h"
+#include "sparse_grid_interpolation.h"
 
 namespace lux {
 namespace {
@@ -170,9 +172,23 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
     if (preview_filename.empty()) {
         marcher.ray_march_image(camera, image, density, color);
     } else {
+        // Keep the sparse ray-marched image separate from the interpolated
+        // preview. Later passes must never treat interpolation as a real sample.
+        ImageData preview(rs.width, rs.height, 4);
+        const auto xs = progressive_axis_order(rs.width);
+        const auto ys = progressive_axis_order(rs.height);
         marcher.ray_march_image_progressive(camera, image, density, color,
             [&](const ImageData& pass_image, int pass) {
-                write_preview_atomic(pass_image, preview_filename);
+                if (pass == 10) {
+                    write_preview_atomic(pass_image, preview_filename);
+                } else {
+                    const int nx = progressive_axis_count(rs.width, pass);
+                    const int ny = progressive_axis_count(rs.height, pass);
+                    image_processing::interpolate_sparse_grid(pass_image, preview,
+                        std::vector<int>(xs.begin(), xs.begin() + nx),
+                        std::vector<int>(ys.begin(), ys.begin() + ny));
+                    write_preview_atomic(preview, preview_filename);
+                }
                 std::cout << "[PhysVFX] Preview " << (pass * 10) << "%: " << preview_filename << std::endl;
             });
     }

@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, _resolve_renderer_python, _monitor_render_worker, _renderer_environment
+from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, _resolve_renderer_python, _monitor_render_worker, _renderer_environment, _cancel_previous_render, _render_jobs
 from test_authoring_fake import Stage, fake_pxr
 from physvfx_houdini.schema import defaults
 
@@ -55,6 +55,7 @@ class Node:
         self.user_data = {}
         self.selected = self.display = self.destroyed = False
     def parent(self): return self.network
+    def path(self): return '/stage/' + self.name
     def parmTemplateGroup(self): return self.groups
     def setParmTemplateGroup(self, group):
         self.groups = group
@@ -177,6 +178,7 @@ class NodeConstructionTests(unittest.TestCase):
             node.values['pv_viewer_path'].set(str(viewer))
             node.stage = lambda: stage
             with patch('subprocess.Popen') as popen, patch('physvfx_houdini.nodes._monitor_render_worker') as monitor:
+                popen.return_value.poll.return_value = 0
                 render_and_view(node)
                 args, kwargs = popen.call_args
                 monitor.assert_called_once_with(popen.return_value)
@@ -185,6 +187,7 @@ class NodeConstructionTests(unittest.TestCase):
                 self.assertIn(str(folder / 'output' / 'image.exr'), args[0])
                 self.assertIn(str(script), args[0])
                 self.assertEqual(kwargs['cwd'], str(folder))
+                self.assertEqual(kwargs['start_new_session'], os.name == 'posix')
                 self.assertNotIn('PYTHONHOME', kwargs['env'])
                 self.assertEqual(os.environ['PYTHONHOME'], '/invalid/houdini/python')
                 self.assertNotIn('--progressive', args[0])
@@ -236,6 +239,74 @@ class NodeConstructionTests(unittest.TestCase):
                 thread.join(timeout=2)
             self.assertFalse(thread.is_alive())
             self.assertIn('signal 11', stream.getvalue())
+            stream = io.StringIO()
+            with redirect_stderr(stream):
+                thread = _monitor_render_worker(types.SimpleNamespace(wait=lambda: -15, _physvfx_cancelled=True))
+                thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(stream.getvalue(), '')
+
+    @unittest.skipUnless(os.name == 'posix', 'process-group cancellation is POSIX-specific')
+    def test_second_click_stops_previous_render_group(self):
+        import signal
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('render_view', network=network)
+            process = types.SimpleNamespace(pid=12345, poll=lambda: None, wait=lambda timeout: 0)
+            _render_jobs[node.path()] = process
+            with patch('os.killpg') as kill_group:
+                _cancel_previous_render(node)
+            kill_group.assert_called_once_with(12345, signal.SIGTERM)
+            self.assertTrue(process._physvfx_cancelled)
+            self.assertNotIn(node.path(), _render_jobs)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process-group cancellation')
+    def test_restart_stops_previous_worker_before_export_and_launch(self):
+        hou = make_hou(); network = Network('lop'); hou.isUIAvailable = lambda: False
+        events = []
+        class Layer:
+            def Export(self, path):
+                events.append('export')
+                Path(path).write_text('#usda 1.0')
+                return True
+        stage = types.SimpleNamespace(Flatten=lambda: Layer())
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'hou': hou}):
+            folder = Path(tmp); script = folder / 'python' / 'usd_sphere_scene.py'
+            script.parent.mkdir(); script.write_text('')
+            viewer = folder / 'viewer'; viewer.write_text(''); viewer.chmod(0o755)
+            node = create_node('render_view', network=network)
+            node.values['pv_usd_path'].set(str(folder / 'scene.usda'))
+            node.values['pv_image_path'].set(str(folder / 'image.exr'))
+            node.values['pv_render_script'].set(str(script))
+            node.values['pv_viewer_path'].set(str(viewer))
+            node.stage = lambda: stage
+            old = types.SimpleNamespace(pid=12345, poll=lambda: None,
+                                        wait=lambda timeout: events.append('wait'))
+            _render_jobs[node.path()] = old
+            def start(*args, **kwargs):
+                events.append('launch')
+                return types.SimpleNamespace()
+            with patch('os.killpg', side_effect=lambda *args: events.append('stop')), \
+                 patch('subprocess.Popen', side_effect=start), \
+                 patch('physvfx_houdini.nodes._monitor_render_worker'):
+                render_and_view(node)
+            self.assertEqual(events, ['stop', 'wait', 'export', 'launch'])
+            self.assertTrue(old._physvfx_cancelled)
+            _render_jobs.pop(node.path(), None)
+
+    @unittest.skipUnless(os.name == 'posix', 'uses POSIX process-group stubs')
+    def test_failed_cancellation_keeps_tracking_the_previous_worker(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('render_view', network=network)
+            process = types.SimpleNamespace(pid=12345, poll=lambda: None, wait=lambda timeout: 0)
+            _render_jobs[node.path()] = process
+            with patch('os.killpg', side_effect=PermissionError('denied')):
+                with self.assertRaisesRegex(hou.OperationFailed, 'Could not stop'):
+                    _cancel_previous_render(node)
+            self.assertIs(_render_jobs[node.path()], process)
+            self.assertFalse(process._physvfx_cancelled)
+            _render_jobs.pop(node.path(), None)
 
     def test_missing_viewer_does_not_export_or_start_render(self):
         hou = make_hou(); network = Network('lop')

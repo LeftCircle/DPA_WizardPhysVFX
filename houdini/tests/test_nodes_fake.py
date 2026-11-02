@@ -179,6 +179,10 @@ class NodeConstructionTests(unittest.TestCase):
                 self.assertIn(str(folder / 'output' / 'image.exr'), args[0])
                 self.assertIn(str(script), args[0])
                 self.assertEqual(kwargs['cwd'], str(folder))
+                self.assertNotIn('--progressive', args[0])
+                node.values['pv_progressive_preview'].set(True)
+                render_and_view(node)
+                self.assertIn('--progressive', popen.call_args.args[0])
 
     def test_missing_viewer_does_not_export_or_start_render(self):
         hou = make_hou(); network = Network('lop')

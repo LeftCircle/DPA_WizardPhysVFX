@@ -55,13 +55,15 @@ TEST_CASE("general USD renderer writes red and green volumes") {
         ("pbvfx_general_scene_" + std::to_string(stamp) + ".exr");
     const auto one_light_output = std::filesystem::temp_directory_path() /
         ("pbvfx_general_scene_one_light_" + std::to_string(stamp) + ".exr");
+    const auto preview_output = std::filesystem::temp_directory_path() /
+        ("pbvfx_general_scene_preview_" + std::to_string(stamp) + ".exr");
     struct RemoveFile {
         std::filesystem::path path;
         ~RemoveFile() { std::error_code ignored; std::filesystem::remove(path, ignored); }
-    } remove_file{output}, remove_one_light{one_light_output};
+    } remove_file{output}, remove_one_light{one_light_output}, remove_preview{preview_output};
 
     render_usd_scene(density, color, camera, lights, rs,
-        Vector(-2, -1.5, -1.5), Vector(2, 1.5, 1.5), output.string());
+        Vector(-2, -1.5, -1.5), Vector(2, 1.5, 1.5), output.string(), {}, {}, preview_output.string());
     auto image = OIIO::ImageInput::open(output.string());
     REQUIRE(image);
     REQUIRE(image->spec().width == rs.width);
@@ -70,6 +72,15 @@ TEST_CASE("general USD renderer writes red and green volumes") {
     std::vector<float> pixels(static_cast<size_t>(rs.width) * rs.height * 4);
     REQUIRE(image->read_image(0, 0, 0, 4, OIIO::TypeDesc::FLOAT, pixels.data()));
     image->close();
+    auto preview_image = OIIO::ImageInput::open(preview_output.string());
+    REQUIRE(preview_image);
+    REQUIRE(preview_image->spec().width == rs.width);
+    REQUIRE(preview_image->spec().height == rs.height);
+    REQUIRE(preview_image->spec().nchannels == 4);
+    std::vector<float> preview_pixels(pixels.size());
+    REQUIRE(preview_image->read_image(0, 0, 0, 4, OIIO::TypeDesc::FLOAT, preview_pixels.data()));
+    preview_image->close();
+    REQUIRE(preview_pixels == pixels);
     size_t red_pixels = 0, green_pixels = 0;
     double two_light_sum = 0;
     for (size_t i = 0; i < pixels.size(); i += 4) {

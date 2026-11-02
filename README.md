@@ -542,3 +542,19 @@ USD time, not an animation sequence. See the [Houdini shadow-cache guide](houdin
 In Solaris, the **PhysVFX Render and View** node saves a flattened USDA, runs
 `usd_sphere_scene.py` and opens the result in `dpa_imgviewer`. Configure the USD
 and image paths in the node. See the [Houdini guide](houdini/README.md#render-and-view).
+
+
+For a progressive preview, enable **Progressive Preview** on the Solaris
+Render and View node, or supply `--preview-image /path/preview.exr` alongside
+`--output /path/final.exr` to `python/usd_sphere_scene.py`. Each of ten passes
+atomically replaces the same preview file. The image always has the final
+resolution, and unsampled pixels are transparent black. To watch a manually
+created preview, start the viewer after the first pass exists:
+
+```bash
+build/DPA_ImageProcessing/dpa_imgviewer -image /path/preview.exr --watch
+```
+
+The preview is a progressive render of a saved scene, not an automatically
+updating Solaris viewport; scene setup and shadow maps are computed before the
+first pass.

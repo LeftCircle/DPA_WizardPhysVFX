@@ -1,4 +1,5 @@
 #include "ray_marcher.h"
+#include "progressive_sampling.h"
 
 #include <iostream>
 #include <random>
@@ -149,6 +150,44 @@ void RayMarcher::ray_march_image(
         img.set_pixel_values(i, j, p);
     }
     } // end parallel context
+}
+
+
+void RayMarcher::ray_march_image_progressive(
+    Camera cam, ImageData& img, const VolumeSPtr<float>& density,
+    const VolumeSPtr<Color>& color,
+    const std::function<void(const ImageData&, int)>& on_pass
+) const {
+    const int width = img.get_width(), height = img.get_height();
+    const auto xs = progressive_axis_order(width);
+    const auto ys = progressive_axis_order(height);
+    img.set_pixel_values(0.0f);
+    openvdb::tools::VolumeRayIntersector<openvdb::FloatGrid> main_rayinter(*_levelset);
+    int previous_width = 0, previous_height = 0;
+    for (int pass = 1; pass <= 10; ++pass) {
+        const int sample_width = progressive_axis_count(width, pass);
+        const int sample_height = progressive_axis_count(height, pass);
+        const auto count = static_cast<std::int64_t>(sample_width) * sample_height;
+        #pragma omp parallel
+        {
+            openvdb::tools::VolumeRayIntersector<openvdb::FloatGrid> rayinter(main_rayinter);
+            #pragma omp for schedule(dynamic, 32)
+            for (std::int64_t index = 0; index < count; ++index) {
+                const int ix = static_cast<int>(index % sample_width);
+                const int iy = static_cast<int>(index / sample_width);
+                if (ix < previous_width && iy < previous_height) continue;
+                const int x = xs[ix], y = ys[iy];
+                auto ray = get_ray(cam, x, y, width, height);
+                if (!rayinter.setWorldRay(ray)) continue;
+                const Color pixel = ray_march_single_pixel(ray.dir(), ray.eye(), density, color, _levelset);
+                img.set_pixel_values(x, y, {(float)pixel.red(), (float)pixel.green(),
+                                            (float)pixel.blue(), (float)pixel.alpha()});
+            }
+        }
+        previous_width = sample_width;
+        previous_height = sample_height;
+        if (on_pass) on_pass(img, pass);
+    }
 }
 
 openvdb::math::Ray<double> RayMarcher::get_ray(

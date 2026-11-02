@@ -115,7 +115,8 @@ PYBIND11_MODULE(physics_vfx, module)
     module.def("render_usd_scene", [](const vspf& density, const vspc& color, const Camera& camera,
         const std::vector<PointLight>& lights, const RenderSettings& settings, const Vector& lo,
         const Vector& hi, const std::string& filename, const std::vector<ShadowRegion>& regions,
-        const std::vector<std::vector<std::optional<FloatGridHandle>>>& caches) {
+        const std::vector<std::vector<std::optional<FloatGridHandle>>>& caches,
+        const std::string& preview_filename) {
             std::vector<std::vector<GridPtr<float>>> grids;
             for (const auto& row : caches) {
                 std::vector<GridPtr<float>> converted;
@@ -123,11 +124,12 @@ PYBIND11_MODULE(physics_vfx, module)
                 grids.push_back(std::move(converted));
             }
             py::gil_scoped_release release;
-            render_usd_scene(density, color, camera, lights, settings, lo, hi, filename, regions, grids);
+            render_usd_scene(density, color, camera, lights, settings, lo, hi, filename, regions, grids, preview_filename);
         }, py::arg("density"), py::arg("color"), py::arg("camera"), py::arg("lights"),
         py::arg("settings"), py::arg("bounds_min"), py::arg("bounds_max"), py::arg("filename"),
         py::arg("shadow_regions") = std::vector<ShadowRegion>{},
-        py::arg("cached_shadow_grids") = std::vector<std::vector<std::optional<FloatGridHandle>>>{});
+        py::arg("cached_shadow_grids") = std::vector<std::vector<std::optional<FloatGridHandle>>>{},
+        py::arg("preview_filename") = "");
 
     py::class_<Color>(module, "Color")
         .def(py::init<>())

@@ -273,6 +273,8 @@ def render_and_view(node):
     command = [v['render_python'], '-u', str(worker), '--python', v['render_python'],
                '--script', str(script), '--usd', str(usd), '--image', str(image),
                '--viewer', str(viewer), '--cache-dir', v['render_stamp_dir']]
+    if v['progressive_preview']:
+        command.append('--progressive')
     try:
         subprocess.Popen(command, cwd=str(repo), env=env)
     except OSError as exc:

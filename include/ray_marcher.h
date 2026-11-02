@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Vector.h>
+#include <functional>
 
 #include <openvdb/tools/RayIntersector.h>
 
@@ -52,6 +53,13 @@ public:
         ImageData& img_data,
         const VolumeSPtr<float>& density,
         const VolumeSPtr<Color>& color
+    ) const;
+
+    // Ten nested sample grids; callback runs after each completed pass.
+    void ray_march_image_progressive(
+        Camera cam, ImageData& img, const VolumeSPtr<float>& density,
+        const VolumeSPtr<Color>& color,
+        const std::function<void(const ImageData&, int)>& on_pass
     ) const;
 
     template <typename Vec, typename Vec3i, typename Vec4i>

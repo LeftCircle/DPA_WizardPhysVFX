@@ -154,9 +154,11 @@ class FieldBindingsTests(unittest.TestCase):
             field = fx.isf_sphere(self.origin, 1)
             color = fx.make_scene_color_field([field], [fx.Color(1, 1, 1)])
             output = str(Path(tmp) / 'cached.exr')
+            preview = str(Path(tmp) / 'preview.exr')
             fx.render_usd_scene(density, color, camera, [light], settings, region[0], region[1],
-                                output, [region], [[restored]])
+                                output, [region], [[restored]], preview)
             self.assertTrue(Path(output).is_file())
+            self.assertTrue(Path(preview).is_file())
 
     def test_noise_warp_samples_displaced_position(self):
         plane = fx.make_plane(self.origin, fx.Vector(0, 1, 0))

@@ -396,6 +396,21 @@ class TranslationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.get_shadow_regions(stage)
 
+    def test_progressive_preview_is_forwarded_with_and_without_cached_maps(self):
+        module, _, _, _, _, calls = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        region = Prim(None, '/region', {'pbvfx:shadowRegion': True})
+        stage.Traverse = lambda: original + [region]
+        scene = module.load_scene('scene')
+        scene.render('final.exr', preview_filename='preview.exr')
+        self.assertEqual(calls[-1][-1], 'preview.exr')
+        self.assertEqual(calls[-1][-2], [])
+        scene.shadow_cache_specs[0]['load'] = True
+        scene.load_shadow_caches = lambda: [['cached_grid']]
+        scene.render('final.exr', preview_filename='preview.exr')
+        self.assertEqual(calls[-1][-2:], ([['cached_grid']], 'preview.exr'))
+
     def test_shadow_cache_explicit_save_load_and_invalidation(self):
         module, _, _, _, _, calls = fixture()
         stage = module.Usd.Stage.Open('scene')

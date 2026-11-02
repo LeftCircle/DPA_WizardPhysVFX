@@ -1,6 +1,8 @@
 #include "usd_scene_render.h"
 
 #include <cmath>
+#include <atomic>
+#include <filesystem>
 #include <chrono>
 #include <iomanip>
 #include <iostream>
@@ -57,15 +59,37 @@ void write_image(const ImageData& image, const std::string& filename) {
     if (!output->close()) throw std::runtime_error("Could not close image: " + filename);
 }
 
+// Each pass is completely written before it replaces the watched preview.
+void write_preview_atomic(const ImageData& image, const std::string& filename) {
+    namespace fs = std::filesystem;
+    static std::atomic<unsigned long long> serial{0};
+    const fs::path destination(filename);
+    const auto stamp = Clock::now().time_since_epoch().count();
+    const auto temp = destination.parent_path() / ("." + destination.stem().string() +
+        ".physvfx_" + std::to_string(stamp) + "_" + std::to_string(serial++) + destination.extension().string());
+    try {
+        write_image(image, temp.string());
+        fs::rename(temp, destination);
+    } catch (...) {
+        std::error_code ignored;
+        fs::remove(temp, ignored);
+        throw;
+    }
+}
+
 }
 
 void render_usd_scene(const vspf& density, const vspc& color, const Camera& camera,
     const std::vector<PointLight>& lights, const RenderSettings& rs,
     const Vector& lo, const Vector& hi, const std::string& filename,
     const std::vector<ShadowRegion>& authored_regions,
-    const std::vector<std::vector<GridPtr<float>>>& cached_shadow_grids)
+    const std::vector<std::vector<GridPtr<float>>>& cached_shadow_grids,
+    const std::string& preview_filename)
 {
     const auto positive = [](float v) { return std::isfinite(v) && v > 0.0f; };
+    if (!preview_filename.empty() && std::filesystem::absolute(preview_filename).lexically_normal() ==
+                                     std::filesystem::absolute(filename).lexically_normal())
+        throw std::invalid_argument("Preview and final image paths must differ");
     if (!density || !color || filename.empty() || rs.width <= 0 || rs.height <= 0 ||
         !finite_vector(lo) || !finite_vector(hi) || lo.X() >= hi.X() || lo.Y() >= hi.Y() || lo.Z() >= hi.Z() ||
         !positive(rs.get_density_vs()) || !positive(rs.get_color_vs()) || !positive(rs.get_shadow_vs()) ||
@@ -143,7 +167,15 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
     ImageData image(rs.width, rs.height, 4);
     std::cout << "[PhysVFX] Ray march image: starting" << std::endl;
     start = Clock::now();
-    marcher.ray_march_image(camera, image, density, color);
+    if (preview_filename.empty()) {
+        marcher.ray_march_image(camera, image, density, color);
+    } else {
+        marcher.ray_march_image_progressive(camera, image, density, color,
+            [&](const ImageData& pass_image, int pass) {
+                write_preview_atomic(pass_image, preview_filename);
+                std::cout << "[PhysVFX] Preview " << (pass * 10) << "%: " << preview_filename << std::endl;
+            });
+    }
     report_elapsed("Ray march image", start);
     std::cout << "[PhysVFX] Write image: starting" << std::endl;
     start = Clock::now();

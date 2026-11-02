@@ -80,6 +80,8 @@ PARAMETERS = {
         P("viewer_path", "Image Viewer", "string", "",
           "Optional executable path; blank finds dpa_imgviewer in the repository build directory."),
         P("render_stamp_dir", "Stamp Cache Directory", "string", "cache"),
+        P("progressive_preview", "Progressive Preview", "toggle", False,
+          "Show ten progressively denser full-size passes in one updating viewer."),
         P("render_view", "Render and View", "button", None,
           "Save the stage, render in the background and open the resulting image."),
     )),),

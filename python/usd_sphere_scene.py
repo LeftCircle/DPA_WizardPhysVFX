@@ -741,13 +741,17 @@ class Scene:
     @property
     def light_shadow_kappa(self): return _one(self.lights, 'light').kappa
 
-    def render(self, filename):
+    def render(self, filename, preview_filename=None):
         with _timed(f'Render scene and write {filename}'):
             args = [self.density, self.color, self.camera, self.lights, self.settings,
                     _fxvec(self.bounds_min), _fxvec(self.bounds_max), str(filename),
                     [(_fxvec(a), _fxvec(b)) for a, b in self.shadow_regions]]
             if any(spec['load'] for spec in self.shadow_cache_specs):
                 args.append(self.load_shadow_caches())
+            elif preview_filename:
+                args.append([])
+            if preview_filename:
+                args.append(str(preview_filename))
             fx.render_usd_scene(*args)
 
     def _shadow_cache_metadata(self, index):
@@ -886,6 +890,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scene', help='USD scene (.usd, .usda or .usdc)')
     parser.add_argument('--output', help='Output image path, e.g. sphere.exr')
+    parser.add_argument('--preview-image', help='Publish ten full-size progressive passes to this image path')
     parser.add_argument('--save-shadow-cache', metavar='REGION_PRIM_PATH', help='Build and save only this region’s shadow maps')
     parser.add_argument('--volume-meters-per-unit', type=float, default=1.0)
     parser.add_argument('--cache-dir', default='cache', help='Directory for named stamp caches (default: cache)')
@@ -894,6 +899,10 @@ def main(argv=None):
     start = time.perf_counter()
     if not args.output and not args.save_shadow_cache:
         parser.error('provide --output or --save-shadow-cache')
+    if args.preview_image and not args.output:
+        parser.error('--preview-image requires --output')
+    if args.preview_image and Path(args.preview_image).resolve() == Path(args.output).resolve():
+        parser.error('--preview-image and --output must be different files')
     try:
         scene = load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir)
         if args.save_shadow_cache:
@@ -901,7 +910,12 @@ def main(argv=None):
         if args.output:
             output = Path(args.output)
             output.parent.mkdir(parents=True, exist_ok=True)
-            scene.render(output)
+            if args.preview_image:
+                preview = Path(args.preview_image)
+                preview.parent.mkdir(parents=True, exist_ok=True)
+                scene.render(output, preview_filename=preview)
+            else:
+                scene.render(output)
     except (ValueError, RuntimeError) as exc:
         parser.exit(1, f'error: {exc}\n')
     _progress(f'Completed in {time.perf_counter() - start:.2f}s')

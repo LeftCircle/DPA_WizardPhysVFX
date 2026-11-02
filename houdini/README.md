@@ -300,8 +300,9 @@ the shelf. Set **USD Save Path** (a `.usda` file) and **Image Save Path**, then
 click **Render and View**. The node exports its input stage as a flattened USD
 and starts `python/usd_sphere_scene.py` in a background process. Houdini stays
 responsive. The renderer's progress and errors appear in the Houdini console.
-After a successful render, the node opens `dpa_imgviewer -image <image>`. A
-failed render does not open the viewer or replace an existing image.
+With progressive preview off, the node opens `dpa_imgviewer -image <image>`
+after a successful render. A failed render does not replace an existing image;
+with progressive preview on, a viewer may already be displaying partial work.
 
 The default viewer is `build/DPA_ImageProcessing/dpa_imgviewer`. Set **Image
 Viewer** if your build puts it elsewhere. Set **Renderer Python** to the Python
@@ -316,6 +317,22 @@ resolved from the renderer repository. Build the viewer and extension first:
 cmake -S . -B build
 cmake --build build --parallel
 ```
+
+Enable **Progressive Preview** to open one viewer window after the first pass.
+The CPU renderer publishes ten passes at 10%, 20%, …, 100% of the image's
+width and height. Every published image retains the final dimensions; pixels
+not yet sampled are transparent black. Samples from earlier passes are reused.
+The viewer watches one temporary preview file and refreshes automatically. The
+final image path is replaced only after the complete render succeeds. The
+preview file is removed after the viewer closes.
+
+Existing Render and View nodes need **Refresh PhysVFX Parameters** to expose
+this new toggle. Rebuild both the Python extension and `dpa_imgviewer` after
+updating; a custom viewer selected in **Image Viewer** must support `--watch`.
+This previews one saved scene: changes in Houdini require pressing Render and
+View again. Scene loading, field stamping and shadow-map creation happen before
+the first pass, so complex scenes may still take time to show the first image.
+Shadow-region caches can reduce repeated shadow-map work.
 
 Do not launch concurrent renders to the same USD and image paths. The node
 uses the USD loader's default time; this is not a frame-sequence renderer.

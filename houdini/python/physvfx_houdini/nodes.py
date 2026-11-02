@@ -219,6 +219,19 @@ def _monitor_render_worker(process):
     return thread
 
 
+
+def _renderer_environment(repo):
+    """Keep the selected external interpreter's standard library independent of Houdini."""
+    import os
+    env = os.environ.copy()
+    # Houdini sets PYTHONHOME to its bundled runtime. Passing that to an
+    # external Python can prevent even the encodings module from loading.
+    env.pop('PYTHONHOME', None)
+    extra = [str(repo / 'build' / 'python'), str(repo / 'python')]
+    env['PYTHONPATH'] = os.pathsep.join(extra + ([env['PYTHONPATH']] if env.get('PYTHONPATH') else []))
+    return env
+
+
 def save_shadow_cache(node):
     """Export the final stage and invoke the external renderer for one region."""
     import os
@@ -246,9 +259,7 @@ def save_shadow_cache(node):
     if not values['shadow_cache_dir'].strip():
         raise hou.OperationFailed('Set a Shadow Cache Directory first.')
     repo = script.resolve().parent.parent
-    env = os.environ.copy()
-    extra = [str(repo / 'build' / 'python'), str(repo / 'python')]
-    env['PYTHONPATH'] = os.pathsep.join(extra + ([env['PYTHONPATH']] if env.get('PYTHONPATH') else []))
+    env = _renderer_environment(repo)
     with tempfile.TemporaryDirectory(prefix='physvfx_shadow_') as tmp:
         usd = str(Path(tmp) / 'scene.usda')
         if not stage.Flatten().Export(usd):
@@ -312,9 +323,7 @@ def render_and_view(node):
             if os.path.exists(temp_path): os.unlink(temp_path)
     except OSError as exc:
         raise hou.OperationFailed(f'Could not save the USD stage: {exc}') from exc
-    env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join([str(repo / 'build' / 'python'), str(repo / 'python')] +
-        ([env['PYTHONPATH']] if env.get('PYTHONPATH') else []))
+    env = _renderer_environment(repo)
     worker = Path(__file__).resolve().parent / 'render_worker.py'
     command = [renderer_python, '-u', str(worker), '--python', renderer_python,
                '--script', str(script), '--usd', str(usd), '--image', str(image),

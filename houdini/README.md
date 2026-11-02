@@ -315,7 +315,10 @@ module imported by Python, not an executable. The interpreter's Python version
 must match the built extension. Set **Renderer Script** if the Houdini plugin
 is installed outside the repository. The node
 adds `build/python` and `python` under the renderer's repository to
-`PYTHONPATH`. **Stamp Cache Directory** is passed to the USD renderer; shadow
+`PYTHONPATH` and removes Houdini's `PYTHONHOME` from the external process so
+that the selected interpreter can locate its own standard library. Houdini's
+environment is not changed. The interpreter still needs compatible OpenUSD and
+PhysVFX bindings. **Stamp Cache Directory** is passed to the USD renderer; shadow
 cache settings are read from the scene. Relative stamp cache directories are
 resolved from the renderer repository. Build the viewer and extension first:
 

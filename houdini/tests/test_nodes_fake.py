@@ -1,5 +1,7 @@
 """Test the shelf/node wiring with a small HOM stand-in."""
 import sys
+import os
+import subprocess
 import io
 from contextlib import redirect_stderr
 import tempfile
@@ -9,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, _resolve_renderer_python, _monitor_render_worker
+from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, _resolve_renderer_python, _monitor_render_worker, _renderer_environment
 from test_authoring_fake import Stage, fake_pxr
 from physvfx_houdini.schema import defaults
 
@@ -162,7 +164,8 @@ class NodeConstructionTests(unittest.TestCase):
                 Path(path).write_text('#usda 1.0')
                 return True
         stage = types.SimpleNamespace(Flatten=lambda: FlatLayer())
-        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'hou': hou}):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'hou': hou}), \
+                patch.dict(os.environ, {'PYTHONHOME': '/invalid/houdini/python'}):
             folder = Path(tmp) / 'project with spaces'; folder.mkdir()
             script = folder / 'python' / 'usd_sphere_scene.py'
             script.parent.mkdir(); script.write_text('')
@@ -182,6 +185,8 @@ class NodeConstructionTests(unittest.TestCase):
                 self.assertIn(str(folder / 'output' / 'image.exr'), args[0])
                 self.assertIn(str(script), args[0])
                 self.assertEqual(kwargs['cwd'], str(folder))
+                self.assertNotIn('PYTHONHOME', kwargs['env'])
+                self.assertEqual(os.environ['PYTHONHOME'], '/invalid/houdini/python')
                 self.assertNotIn('--progressive', args[0])
                 node.values['pv_progressive_preview'].set(True)
                 render_and_view(node)
@@ -248,6 +253,15 @@ class NodeConstructionTests(unittest.TestCase):
                 popen.assert_not_called()
             self.assertEqual(usd.read_text(), 'old stage')
 
+    def test_external_interpreter_starts_with_houdini_pythonhome_set(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'PYTHONHOME': '/invalid/houdini/python'}):
+            env = _renderer_environment(Path(tmp))
+            result = subprocess.run([sys.executable, '-c', 'import encodings; print("started")'],
+                                    env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout.strip(), 'started')
+            self.assertNotIn('PYTHONHOME', env)
+            self.assertEqual(os.environ['PYTHONHOME'], '/invalid/houdini/python')
+
     def test_render_node_is_passthrough_on_cook(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):
@@ -263,7 +277,7 @@ class NodeConstructionTests(unittest.TestCase):
                 return True
         region = types.SimpleNamespace(GetAttribute=lambda key: types.SimpleNamespace(Get=lambda: '/tmp/shadow'))
         stage = types.SimpleNamespace(GetPrimAtPath=lambda path: region, Flatten=lambda: FlatLayer())
-        with patch.dict(sys.modules, {'hou': hou}):
+        with patch.dict(sys.modules, {'hou': hou}), patch.dict(os.environ, {'PYTHONHOME': '/invalid/houdini/python'}):
             source = create_node('shadow_region', network=network)
             source.values['pv_path'].set('/World/ShadowHead')
             node = create_node('shadow_cache', network=network, source=source)
@@ -277,6 +291,8 @@ class NodeConstructionTests(unittest.TestCase):
                 self.assertIn('/World/ShadowHead', args[0])
                 self.assertIn('--cache-dir', args[0])
                 self.assertFalse(kwargs['check'])
+                self.assertNotIn('PYTHONHOME', kwargs['env'])
+                self.assertEqual(os.environ['PYTHONHOME'], '/invalid/houdini/python')
 
     def test_refresh_restores_empty_script_but_keeps_custom_script(self):
         hou = make_hou(); network = Network('lop')

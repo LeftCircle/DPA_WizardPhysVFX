@@ -295,6 +295,14 @@ def author_operation(stage, v):
                 _bounds(v)
         else:
             _normal(v['normal'], 'Warp direction')
+            noise_type = v.get('noise_type', 'fspn')
+            if noise_type not in ('fspn', 'fstn'):
+                raise AuthoringError('Unsupported warp noise type')
+            if noise_type == 'fstn':
+                for key in ('terrainAmpPos', 'terrainAmpNeg'):
+                    _number(v.get(key, 1.0), key, 0)
+                for key, default in (('terrainGammaPos', 1.0), ('terrainGammaNeg', 1.0), ('terrainTransition', 0.3)):
+                    _positive(v.get(key, default), key)
     prim = _existing_or_create(stage, path, True, 'Xform')
     if prim.IsA(UsdGeom.Gprim) or _tag(prim, 'field_type') is not None or _tag(prim, 'isf_type') is not None:
         raise AuthoringError(f'{path}: choose a separate Xform for the operation')
@@ -314,6 +322,13 @@ def author_operation(stage, v):
                 _write_bounds(prim, v)
         else:
             _float3(prim, 'normal', _normal(v['normal'], 'Warp direction'))
+            noise_type = v.get('noise_type', 'fspn')
+            _attr(prim, 'noiseType', 'Token', noise_type)
+            if noise_type == 'fstn':
+                for key, default in (('terrainAmpPos', 1.0), ('terrainAmpNeg', 1.0),
+                                     ('terrainGammaPos', 1.0), ('terrainGammaNeg', 1.0),
+                                     ('terrainTransition', 0.3)):
+                    _float(prim, key, float(v.get(key, default)))
     _stamp(prim, v)
     _display_color(prim, v)
     from .preview import author_stamp_preview

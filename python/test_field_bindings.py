@@ -76,7 +76,7 @@ class FieldBindingsTests(unittest.TestCase):
                  'isf_torus', 'isf_cone', 'isf_box', 'isf_icosahedron', 'isf_steiner_patch',
                  'isf_ellipse', 'isf_cylinder', 'make_grid_field', 'make_warp_field',
                  'make_identity_field', 'make_grad_field', 'makeNPT', 'make_iteratedNPT',
-                 'make_eval_dot_grad_over_gradsq', 'fspn', 'make_fspn', 'make_fade_factor')
+                 'make_eval_dot_grad_over_gradsq', 'fspn', 'make_fspn', 'make_fstn', 'make_fade_factor')
         for name in names:
             with self.subTest(name=name):
                 self.assertTrue(callable(getattr(fx, name, None)))
@@ -179,6 +179,25 @@ class FieldBindingsTests(unittest.TestCase):
         sphere = fx.sphere(self.origin, 1)
         pyro = fx.make_pyro(sphere, 0.5, 2, self.origin, 1, 2, 0, 1)
         self.assertAlmostEqual(pyro.eval(fx.Vector(2, 0, 0)), 1, places=4)
+
+    def test_terrain_noise_matches_slide_formula(self):
+        vals = fx.FSVals(0.5, 3.0, self.origin, 1.0, 2.0)
+        field = fx.make_fstn(vals, 2.0, 3.0, 3.0, 0.5, 0.3)
+        covered = set()
+        for x in range(-15, 16):
+            for z in range(-15, 16):
+                point = fx.Vector(x * 0.13, 0.27, z * 0.17)
+                n = fx.fspn(vals, point)
+                if n == 0:
+                    expected = 0.0
+                else:
+                    covered.add((n > 0, abs(n) >= 0.3))
+                    gamma = 1 + min(abs(n) / 0.3, 1) * ((3.0 if n > 0 else 0.5) - 1)
+                    expected = (2.0 if n > 0 else -3.0) * abs(n) ** gamma
+                self.assertAlmostEqual(field.eval(point), expected, places=5)
+        self.assertEqual(len(covered), 4)
+        with self.assertRaises(ValueError):
+            fx.make_fstn(vals, 1, 1, 1, 1, 0)
 
 
 if __name__ == '__main__':

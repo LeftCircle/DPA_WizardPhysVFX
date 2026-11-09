@@ -277,6 +277,21 @@ class AuthoringContractTests(unittest.TestCase):
         self.assertEqual(settings.attrs['Resolution'].value, (960, 540))
         self.assertEqual(settings.attrs['pbvfx:densityVoxelSize'].value, 0.025)
 
+    def test_terrain_noise_warp_authoring(self):
+        v = defaults('field'); v['path'] = '/World/A'
+        author(self.stage, 'field', v)
+        op = defaults('operation')
+        op.update(operation='noise_warp', input_a='/World/A', noise_type='fstn',
+                  terrainAmpPos=2, terrainAmpNeg=3, terrainGammaPos=4,
+                  terrainGammaNeg=0.5, terrainTransition=0.2)
+        prim = author(self.stage, 'operation', op)
+        self.assertEqual(prim.attrs['pbvfx:noiseType'].value, 'fstn')
+        for key in ('terrainAmpPos', 'terrainAmpNeg', 'terrainGammaPos', 'terrainGammaNeg', 'terrainTransition'):
+            self.assertEqual(prim.attrs['pbvfx:' + key].value, op[key])
+        op['terrainTransition'] = 0
+        with self.assertRaises(AuthoringError):
+            author(self.stage, 'operation', op)
+
     def test_signed_pyro_and_explicit_bounds(self):
         v = defaults('field'); v['path'] = '/World/A'
         author(self.stage, 'field', v)

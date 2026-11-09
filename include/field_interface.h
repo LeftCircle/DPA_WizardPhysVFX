@@ -194,7 +194,7 @@ VolumeSPtr<T> make_constant(const T& t){
 }
 
 VolumeSPtr<float> make_plane(const Vector& point, const Vector& normal);
-vspf isf_plane(const Vector& point, const Vector& normal) { return make_plane(point, normal); }
+inline vspf isf_plane(const Vector& point, const Vector& normal) { return make_plane(point, normal); }
 
 VolumeSPtr<float> isf_sphere(const Vector& center, const float radius);
 

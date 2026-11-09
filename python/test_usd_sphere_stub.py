@@ -358,6 +358,21 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(seen[0][1][0], 'noise')
         self.assertEqual(scene.objects[0].bounds_min, (-1, -1, -1))
 
+        warp.values.update({'pbvfx:noiseType': 'fstn', 'pbvfx:terrainAmpPos': 2,
+                            'pbvfx:terrainAmpNeg': 3, 'pbvfx:terrainGammaPos': 4,
+                            'pbvfx:terrainGammaNeg': 0.5, 'pbvfx:terrainTransition': 0.2})
+        module.fx.FSVals = lambda *args: ('values', args)
+        module.fx.make_fstn = lambda *args: ('terrain', args)
+        module.load_scene('scene')
+        self.assertEqual(seen[-1][1][0], 'terrain')
+        self.assertEqual(seen[-1][1][1][1:], (2, 3, 4, 0.5, 0.2))
+        warp.values['pbvfx:terrainTransition'] = 0
+        with self.assertRaisesRegex(ValueError, 'terrainTransition'):
+            module.load_scene('scene')
+        warp.values['pbvfx:noiseType'] = 'unknown'
+        with self.assertRaisesRegex(ValueError, 'noiseType'):
+            module.load_scene('scene')
+
     def test_object_stamp_uses_local_bounds_and_voxel_override(self):
         module, sphere, _, _, _, _ = fixture()
         sphere.values.update({'pbvfx:stamp': True, 'pbvfx:stampVoxelSize': 0.2,

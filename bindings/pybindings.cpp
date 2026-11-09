@@ -426,6 +426,11 @@ PYBIND11_MODULE(physics_vfx, module)
         py::arg("roughness"), py::arg("octaves"), py::arg("translation"),
         py::arg("frequency"), py::arg("frequency_jump"));
     module.def("make_fspn", [](const FSVals& vals) { return make_fspn(FSVals(vals)); }, py::arg("values"));
+    module.def("make_fstn", [](const FSVals& vals, float amp_pos, float amp_neg,
+                               float gamma_pos, float gamma_neg, float transition) {
+        return make_fstn(FSVals(vals), amp_pos, amp_neg, gamma_pos, gamma_neg, transition);
+    }, py::arg("values"), py::arg("amp_pos"), py::arg("amp_neg"),
+       py::arg("gamma_pos"), py::arg("gamma_neg"), py::arg("t_point"));
     module.def("make_fade_factor", &make_fade_factor, py::arg("center"), py::arg("fade"), py::arg("radius"));
 
     // Preserve the shorter existing names while exposing the C++ names too.

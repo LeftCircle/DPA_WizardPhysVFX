@@ -572,7 +572,19 @@ def _noise_warp_operation(prim, inputs, scale):
     translation = _fxvec(_vec(_custom(prim, 'noiseTranslation', (0, 0, 0)), scale))
     amplitude = _positive(_custom(prim, 'amplitude', 0.5), 'pbvfx:amplitude', allow_zero=True) * scale
     direction = _normal(prim)
-    noise = fx.make_fspn(roughness, octaves, translation, frequency, jump)
+    noise_type = str(_custom(prim, 'noiseType', 'fspn'))
+    if noise_type == 'fspn':
+        noise = fx.make_fspn(roughness, octaves, translation, frequency, jump)
+    elif noise_type == 'fstn':
+        vals = fx.FSVals(roughness, octaves, translation, frequency, jump)
+        amp_pos = _positive(_custom(prim, 'terrainAmpPos', 1.0), 'pbvfx:terrainAmpPos', allow_zero=True)
+        amp_neg = _positive(_custom(prim, 'terrainAmpNeg', 1.0), 'pbvfx:terrainAmpNeg', allow_zero=True)
+        gamma_pos = _positive(_custom(prim, 'terrainGammaPos', 1.0), 'pbvfx:terrainGammaPos')
+        gamma_neg = _positive(_custom(prim, 'terrainGammaNeg', 1.0), 'pbvfx:terrainGammaNeg')
+        transition = _positive(_custom(prim, 'terrainTransition', 0.3), 'pbvfx:terrainTransition')
+        noise = fx.make_fstn(vals, amp_pos, amp_neg, gamma_pos, gamma_neg, transition)
+    else:
+        raise ValueError(f'{prim.GetPath()}: unsupported pbvfx:noiseType {noise_type!r}')
     return fx.noise_warp_field(inputs[0].field, noise, direction, amplitude)
 
 

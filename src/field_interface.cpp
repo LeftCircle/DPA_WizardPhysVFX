@@ -1,5 +1,6 @@
 #include "field_interface.h"
 #include "LinearAlgebra.h"
+#include <stdexcept>
 
 namespace lux{
 
@@ -130,23 +131,20 @@ vspf make_fstn(
     float gamma_neg,
     float t_point
 ){
-    t_point = std::clamp(t_point, -1.0f, 1.0f);
+    if (!std::isfinite(t_point) || t_point <= 0 ||
+        !std::isfinite(amp_pos) || !std::isfinite(amp_neg) || amp_pos < 0 || amp_neg < 0 ||
+        !std::isfinite(gamma_pos) || !std::isfinite(gamma_neg) || gamma_pos <= 0 || gamma_neg <= 0)
+        throw std::invalid_argument("terrain amplitudes must be non-negative; gammas and transition must be positive and finite");
     auto fspn = make_fspn(std::forward<FSVals>(vals));
-    auto gamma_eval = [gamma_pos, gamma_neg, t_point, fspn](const Vector& p){
-        auto n = fspn->eval(p);
-        auto lerp_to = n > 0 ? gamma_pos : gamma_neg;
-        auto gamma = lerp(0.0f, lerp_to, std::abs(n) / t_point);
-        return gamma;
+    auto eval = [fspn, amp_pos, amp_neg, gamma_pos, gamma_neg, t_point](const Vector& p){
+        const float n = fspn->eval(p);
+        if (n == 0.0f) return 0.0f;
+        const float mix = std::min(std::abs(n) / t_point, 1.0f);
+        const float gamma = 1.0f + mix * ((n > 0 ? gamma_pos : gamma_neg) - 1.0f);
+        const float amplitude = n > 0 ? amp_pos : -amp_neg;
+        return amplitude * std::pow(std::abs(n), gamma);
     };
-    vspf gamma_field = std::make_shared<FunctionField<float, decltype(gamma_eval)>>(std::move(gamma_eval));
-
-    auto amp_eval = [amp_pos, amp_neg, fspn](const Vector& p){
-        auto n = fspn->eval(p);
-        return n > 0 ? amp_pos : amp_neg;
-    };
-    vspf amp_field = std::make_shared<FunctionField<float, decltype(amp_eval)>>(std::move(amp_eval));
-
-    return amp_field * pow(lux::abs(fspn), gamma_field);
+    return funcfield<float>(std::move(eval));
 }
 
 // ---------------------------------------------------------------------------------

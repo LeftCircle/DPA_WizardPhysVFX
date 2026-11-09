@@ -113,6 +113,20 @@ Noise operations expose `roughness`, `octaves`, `frequency`, `frequencyJump`,
 `noiseTranslation`, and `amplitude`. Pyro additionally uses `gamma` and
 `iterations`; noise warp uses `normal` as its direction. The normal for a field
 is local; the noise-warp direction and bounds are in stage world coordinates.
+For terrain, select **Fractal Noise Warp** on a PhysVFX Operation, connect a
+bounded plane as Input A, and choose **Fractal Sum Terrain** under **Warp Noise
+Type**. The positive and negative terrain amplitudes and gammas shape the two
+halves of the noise independently; gamma transitions linearly from 1 at zero
+to its selected value at the positive **Terrain Gamma Transition** magnitude.
+The regular warp Amplitude scales the resulting displacement, and the operation
+bounds clip it. Existing scenes default to Fractal Sum Perlin. For an existing
+operation node, select it and use **Refresh PhysVFX Parameters** on the shelf
+to add the new controls.
+
+Python exposes `make_fstn(values, amp_pos, amp_neg, gamma_pos, gamma_neg,
+t_point)`, where `values` is an `FSVals`. Amplitudes must be non-negative;
+gammas and the transition magnitude must be positive. Rebuild the Python
+extension after updating the source.
 Positive pyro amplitude expands the field; negative amplitude contracts it.
 The automatic bounds for expanding pyro are an estimate, so enable **Use
 Explicit Pyro Bounds** and set **Bounds Minimum/Maximum** in world space when

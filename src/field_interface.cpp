@@ -122,7 +122,6 @@ vspf make_pyro(
     return f + pow(abs(fspn_of_iternpt), gamma) * make_constant<float>(-amp);
 }
 
-// Fractal sum terrain noise
 vspf make_fstn(
     FSVals&& vals,
     float amp_pos,
@@ -130,8 +129,25 @@ vspf make_fstn(
     float gamma_pos,
     float gamma_neg,
     float t_point
-);
+){
+    t_point = std::clamp(t_point, -1.0f, 1.0f);
+    auto fspn = make_fspn(std::forward<FSVals>(vals));
+    auto gamma_eval = [gamma_pos, gamma_neg, t_point, fspn](const Vector& p){
+        auto n = fspn->eval(p);
+        auto lerp_to = n > 0 ? gamma_pos : gamma_neg;
+        auto gamma = lerp(0.0f, lerp_to, std::abs(n) / t_point);
+        return gamma;
+    };
+    vspf gamma_field = std::make_shared<FunctionField<float, decltype(gamma_eval)>>(std::move(gamma_eval));
 
+    auto amp_eval = [amp_pos, amp_neg, fspn](const Vector& p){
+        auto n = fspn->eval(p);
+        return n > 0 ? amp_pos : amp_neg;
+    };
+    vspf amp_field = std::make_shared<FunctionField<float, decltype(amp_eval)>>(std::move(amp_eval));
+
+    return amp_field * pow(lux::abs(fspn), gamma_field);
+}
 
 // ---------------------------------------------------------------------------------
 // fields!

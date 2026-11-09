@@ -122,6 +122,16 @@ vspf make_pyro(
     return f + pow(abs(fspn_of_iternpt), gamma) * make_constant<float>(-amp);
 }
 
+// Fractal sum terrain noise
+vspf make_fstn(
+    FSVals&& vals,
+    float amp_pos,
+    float amp_neg,
+    float gamma_pos,
+    float gamma_neg,
+    float t_point
+);
+
 
 // ---------------------------------------------------------------------------------
 // fields!

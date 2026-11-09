@@ -2,13 +2,14 @@
 
 #include <cassert>
 #include <algorithm>
+#include <utility>
 
 #include "perlin.h"
 #include "volume.h"
 #include "fractal_sum_noise.h"
 #include "db_perlin.h"
 #include "field_operations.h"
-
+#include "helper_functions.h"
 
 namespace lux{
 
@@ -39,13 +40,6 @@ vspf make_fade_factor(
     float radius
 );
 
-
-// inline vspf make_pyroclastic(
-//     const vspf& dens,
-//     const vspf&
-//     float amplitude, 
-//     float gamma
-// )
 
 }
 

@@ -25,6 +25,12 @@ ctest --test-dir build --output-on-failure
 # To see printf output during unit tests
 ctest --test-dir build -V
 
+# include errors:
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+In VS Code run:
+CMake: Delete Cache and Reconfigure
+Developer: Reload Window
 
 If you add a brand-new test source file and CMake does not detect it, reconfigure:
 

@@ -39,6 +39,4 @@ vspf make_fade_factor(
     return std::make_shared<FunctionField<float, decltype(eval)>>(std::move(eval));
 }
 
-
-
 }

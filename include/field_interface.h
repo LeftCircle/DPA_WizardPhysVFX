@@ -1,10 +1,10 @@
 #pragma once
 
-#include <vector>
-#include <algorithm>
+//#include <vector>
+//#include <algorithm>
 #include <openvdb/openvdb.h>
 #include <openvdb/tools/Interpolation.h>
-#include <utility>
+//#include <utility>
 #include <type_traits>
 
 #include "volume.h"
@@ -153,6 +153,16 @@ VSPtr<T> make_advect_semi_lagrange(const VSPtr<T>& a, const vspv& u, float dt){
     }
 }
 
+// Fractal sum terrain noise
+vspf make_fstn(
+    FSVals&& vals,
+    float amp_pos,
+    float amp_neg,
+    float gamma_pos,
+    float gamma_neg,
+    float t_point
+);
+
 // ---------------------------------------------------------------------------------
 // constructive solid geometry
 // ---------------------------------------------------------------------------------
@@ -183,7 +193,8 @@ VolumeSPtr<T> make_constant(const T& t){
     return std::make_shared<ConstantField<T>>(t);
 }
 
-VolumeSPtr<float> make_plane(const Vector& point, const Vector& normal) ;
+VolumeSPtr<float> make_plane(const Vector& point, const Vector& normal);
+vspf isf_plane(const Vector& point, const Vector& normal) { return make_plane(point, normal); }
 
 VolumeSPtr<float> isf_sphere(const Vector& center, const float radius);
 

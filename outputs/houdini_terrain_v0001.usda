@@ -54,7 +54,7 @@ def "World"
         }
     }
 
-    def Xform "PhysVFXField"
+    def Xform "ground_plane"
     {
         custom point3f pbvfx:boundsMax = (15, 2, 15)
         custom point3f pbvfx:boundsMin = (-15, -2, -15)
@@ -72,6 +72,48 @@ def "World"
             custom bool pbvfx:preview = 1
             point3f[] points = [(-15, -2, -15), (15, -2, -15), (-15, 2, -15), (15, 2, -15), (-15, -2, 15), (15, -2, 15), (-15, 2, 15), (15, 2, 15), (-15, -2, -15), (-15, 2, -15), (15, -2, -15), (15, 2, -15), (-15, -2, 15), (-15, 2, 15), (15, -2, 15), (15, 2, 15), (-15, -2, -15), (-15, -2, 15), (15, -2, -15), (15, -2, 15), (-15, 2, -15), (-15, 2, 15), (15, 2, -15), (15, 2, 15)]
             color3f[] primvars:displayColor = [(1, 0.65, 0.1)] (
+                interpolation = "constant"
+            )
+            uniform token type = "linear"
+            token visibility = "inherited"
+            float[] widths = [0.15] (
+                interpolation = "constant"
+            )
+        }
+    }
+
+    def Xform "ground_plane_pyrod"
+    {
+        custom float pbvfx:amplitude = 3
+        custom string pbvfx:cacheName = ""
+        custom float pbvfx:frequency = 1
+        custom float pbvfx:frequencyJump = 0.001
+        custom float pbvfx:gamma = 0.2
+        custom rel pbvfx:inputs = </World/ground_plane>
+        custom int pbvfx:iterations = 1
+        custom float3 pbvfx:noiseTranslation = (0, 0, 0)
+        custom float pbvfx:octaves = 3
+        custom token pbvfx:operation = "pyro"
+        custom float pbvfx:roughness = 0.5
+        custom bool pbvfx:stamp = 0
+        custom float pbvfx:stampVoxelSize = 0
+        custom bool pbvfx:usePyroBounds = 0
+        custom bool pbvfx:useStampBounds = 0
+    }
+
+    def Xform "ShadowRegion"
+    {
+        custom point3f pbvfx:shadowBoundsMax = (15, 10, 15)
+        custom point3f pbvfx:shadowBoundsMin = (-15, -1, -15)
+        custom bool pbvfx:shadowRegion = 1
+
+        def BasisCurves "__physvfx_bounds"
+        {
+            int[] curveVertexCounts = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+            float3[] extent = [(-15.075, -1.075, -15.075), (15.075, 10.075, 15.075)]
+            custom bool pbvfx:preview = 1
+            point3f[] points = [(-15, -1, -15), (15, -1, -15), (-15, 10, -15), (15, 10, -15), (-15, -1, 15), (15, -1, 15), (-15, 10, 15), (15, 10, 15), (-15, -1, -15), (-15, 10, -15), (15, -1, -15), (15, 10, -15), (-15, -1, 15), (-15, 10, 15), (15, -1, 15), (15, 10, 15), (-15, -1, -15), (-15, -1, 15), (15, -1, -15), (15, -1, 15), (-15, 10, -15), (-15, 10, 15), (15, 10, -15), (15, 10, 15)]
+            color3f[] primvars:displayColor = [(1, 0, 0)] (
                 interpolation = "constant"
             )
             uniform token type = "linear"

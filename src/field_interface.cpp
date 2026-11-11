@@ -131,7 +131,7 @@ vspf make_fstn(
     float gamma_neg,
     float t_point
 ){
-    if (!std::isfinite(t_point) || t_point <= 0 ||
+    if (!std::isfinite(t_point) || t_point < 0 ||
         !std::isfinite(amp_pos) || !std::isfinite(amp_neg) || amp_pos < 0 || amp_neg < 0 ||
         !std::isfinite(gamma_pos) || !std::isfinite(gamma_neg) || gamma_pos <= 0 || gamma_neg <= 0)
         throw std::invalid_argument("terrain amplitudes must be non-negative; gammas and transition must be positive and finite");

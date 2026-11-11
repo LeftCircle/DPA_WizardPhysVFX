@@ -41,45 +41,8 @@ WispGuideParticle interpolate(
     );
 }
 
-
-// auto wisp_uniform(
-//     size_t n_dots,
-//     float dens,
-//     float clump,
-//     float pscale,
-//     FSVals fspn1,
-//     FSVals fspn2,
-//     Vector displacement,
-//     Vector location,
-//     CoordinateSys axis,
-//     int id,
-//     Color col = Color(1, 1, 1, 1),
-//     float min = -1,
-//     float max = 1
-// ){
-//     auto rng = [
-//         engine = std::mt19937{static_cast<std::mt19937::result_type>(id)},
-//         distribution = std::uniform_real_distribution<float>{}
-//     ](float min, float max) mutable {
-//         using Params = decltype(distribution)::param_type;
-//         return distribution(engine, Params{min, max});
-//     };
-//     return Wisp<decltype(rng)>(
-//         rng,
-//         n_dots,
-//         dens,
-//         clump,
-//         pscale,
-//         std::move(fspn1),
-//         std::move(fspn2),
-//         std::move(displacement),
-//         std::move(location),
-//         std::move(axis),
-//         id,
-//         col,
-//         min,
-//         max
-//     );
-// };
+vspf wisp_spline(const std::vector<WispGuideParticle>& guide_particles, size_t n_dots){
+    
+}
 
 } // end namespace lux

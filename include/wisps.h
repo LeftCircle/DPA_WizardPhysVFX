@@ -196,6 +196,7 @@ WispGuideParticle interpolate(
 );
 
 
+vspf wisp_spline(const std::vector<WispGuideParticle>& guide_particles, size_t n_dots);
 
 
 } // end namespace lux

@@ -67,7 +67,7 @@ public:
             float r = std::pow(std::abs(fspn<float, Vector>(_fspn1, p0)), _clump);
             auto p3 = r * proj;
             // apply guid particle location and pscale
-            auto p4 = _location + _pscale * p3[0] * _axis.t + p3[1] * _axis.n + p3[2] * _axis.b;
+            auto p4 = _location + _pscale * (p3[0] * _axis.t + p3[1] * _axis.n + p3[2] * _axis.b);
             // now displacement vec -> this should make x/y/z have similar ish values
             auto d = Vector(fspn<float>(_fspn2, p3), fspn<float, Vector>(_fspn2, p3 + _displacement), fspn<float>(_fspn2, p3 - _displacement));
             auto p5 = p4 + d;
@@ -221,7 +221,7 @@ private:
         float r = std::pow(std::abs(fspn<float, Vector>(params.fspn1, p0)), params.clump);
         auto p3 = r * proj;
         // apply guid particle location and pscale
-        auto p4 = params.location + params.pscale * p3[0] * params.axis.t + p3[1] * params.axis.n + p3[2] * params.axis.b;
+        auto p4 = params.location + params.pscale * (p3[0] * params.axis.t + p3[1] * params.axis.n + p3[2] * params.axis.b);
         // now displacement vec -> this should make x/y/z have similar ish values
         auto d = Vector(fspn<float>(params.fspn2, p3), fspn<float, Vector>(params.fspn2, p3 + params.displacement), fspn<float>(params.fspn2, p3 - params.displacement));
         auto p5 = p4 + d;

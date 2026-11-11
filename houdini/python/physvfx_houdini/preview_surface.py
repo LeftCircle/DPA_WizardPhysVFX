@@ -24,10 +24,13 @@ def _field(kind, v, sphere_radius):
         if kind == 'isf_cylinder': return max(math.sqrt(radial2) - radius, abs(axial) - height/2)
         if kind == 'isf_ellipse': return axial*axial/(major*major) + radial2/(minor*minor) - 1
         if kind == 'isf_cone':
-            if axial > height: return axial-height
-            if axial < 0: return -axial
-            if r2 == 0: return 0.0
-            return math.acos(max(-1.0, min(1.0, axial/math.sqrt(r2)))) - v['theta']
+            radial = math.sqrt(radial2)
+            base = height * math.tan(v['theta'])
+            t = max(0.0, min(1.0, (axial*height + radial*base)/(height*height + base*base)))
+            side = math.hypot(axial-t*height, radial-t*base)
+            cap = math.hypot(axial-height, radial-min(radial, base))
+            inside = 0 <= axial <= height and radial <= axial * math.tan(v['theta'])
+            return (-1.0 if inside else 1.0) * min(side, cap)
         if kind == 'isf_box':
             exp = 2*v['roundingExponent']
             return x**exp + y**exp + z**exp - radius**exp

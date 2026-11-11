@@ -147,6 +147,23 @@ vspf make_fstn(
     return funcfield<float>(std::move(eval));
 }
 
+vspf terrain_displace(
+    const vspf& a,
+    FSVals&& vals,
+    float amp_pos,
+    float amp_neg,
+    float gamma_pos,
+    float gamma_neg,
+    float t_point,
+    int iters
+){
+    auto fstn = make_fstn(std::move(vals), amp_pos, amp_neg, gamma_pos, gamma_neg, t_point);
+    auto iter_npt = make_iteratedNPT(a, iters);
+    auto fstn_of_iternpt = make_warp_field(fstn, iter_npt);
+    return a + fstn_of_iternpt;
+}
+
+
 // ---------------------------------------------------------------------------------
 // fields!
 // ---------------------------------------------------------------------------------
@@ -166,6 +183,10 @@ VolumeSPtr<float> isf_torus(const Vector& center, float r_major, float r_minor, 
 }
 
 VolumeSPtr<float> isf_cone(const Vector& x0, const Vector& nhat, float height, float theta){
+    const double n = nhat.magnitude();
+    if (!std::isfinite(n) || n < 1e-10 || !std::isfinite(height) || height <= 0 ||
+        !std::isfinite(theta) || theta <= 0 || theta >= std::acos(-1.0) / 2)
+        throw std::invalid_argument("cone requires a nonzero finite normal, positive height and angle between 0 and pi/2");
     return std::make_shared<ConeField>(x0, nhat, height, theta);
 }
 
@@ -222,7 +243,9 @@ VSPtr<Vector> make_grad_field(const vspf& f){
 VSPtr<Vector> make_eval_dot_grad_over_gradsq(const vspf& f){
     auto eval = [f](const Vector& v){
         auto grad_f = f->grad(v);
-        return (f->eval(v) * grad_f) / (grad_f * grad_f);
+        const auto grad_sq = grad_f * grad_f;
+        if (!std::isfinite(grad_sq) || grad_sq < 1e-20) return Vector(0, 0, 0);
+        return (f->eval(v) * grad_f) / grad_sq;
     };
     return funcfield<Vector>(eval);
 }

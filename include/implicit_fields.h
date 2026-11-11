@@ -73,11 +73,11 @@ public:
     using volumeGradType = typename Volume<float>::volumeGradType;
 
     ConeField(const Vector& x_0, const Vector& n_hat, float height, float theta) : 
-            _x_0(x_0), _n_hat(n_hat), _height(height), _theta(theta) {};
+            _x_0(x_0), _n_hat(n_hat.unitvector()), _height(height), _theta(theta) {};
     ~ConeField() = default;
     
     const volumeDataType eval( const Vector& p ) const override;
-    //const volumeGradType grad( const Vector& p ) const override { return {}; }
+    const volumeGradType grad( const Vector& p ) const override;
     virtual std::string typelabel() { return "Cone"; }
 
 private:

@@ -163,6 +163,17 @@ vspf make_fstn(
     float t_point
 );
 
+vspf terrain_displace(
+    const vspf& a,
+    FSVals&& vals,
+    float amp_pos,
+    float amp_neg,
+    float gamma_pos,
+    float gamma_neg,
+    float t_point,
+    int iters
+);
+
 // ---------------------------------------------------------------------------------
 // constructive solid geometry
 // ---------------------------------------------------------------------------------

@@ -174,9 +174,14 @@ PYBIND11_MODULE(physics_vfx, module)
     module.def("affine_transform_field", [](const vspf& field, const Vector& origin,
         const Vector& x_axis, const Vector& y_axis, const Vector& z_axis) {
         if (!field) throw py::value_error("field cannot be null");
-        return funcfield<float>([field, origin, x_axis, y_axis, z_axis](const Vector& p) {
+        auto eval = [field, origin, x_axis, y_axis, z_axis](const Vector& p) {
             return field->eval(origin + p.X() * x_axis + p.Y() * y_axis + p.Z() * z_axis);
-        });
+        };
+        auto grad = [field, origin, x_axis, y_axis, z_axis](const Vector& p) {
+            const auto g = field->grad(origin + p.X() * x_axis + p.Y() * y_axis + p.Z() * z_axis);
+            return Vector(g * x_axis, g * y_axis, g * z_axis);
+        };
+        return funcfield<float>(std::move(eval), std::move(grad));
     }, py::arg("field"), py::arg("origin"), py::arg("x_axis"), py::arg("y_axis"), py::arg("z_axis"));
 
     module.def("make_scene_color_field", [](const std::vector<vspf>& fields, const std::vector<Color>& colors) {

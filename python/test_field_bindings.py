@@ -174,6 +174,30 @@ class FieldBindingsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fx.noise_warp_field(plane, fx.make_constant(1.0), self.origin, 1.0)
 
+    def test_cone_gradient_caps_and_nearest_point_are_stable(self):
+        cone = fx.isf_cone(self.origin, fx.Vector(0, 2, 0), 2, 0.5)
+        self.assertLess(cone.eval(fx.Vector(0.1, 1.99999, 0)), 0)
+        self.assertGreater(cone.eval(fx.Vector(0.1, 2.00001, 0)), 0)
+        for p in ((0.7, 1, 0), (0.1, 1.5, 0), (0.5, 2.2, 0.1), (0.8, -0.2, 0)):
+            v = fx.Vector(*p)
+            g = xyz(cone.grad(v))
+            for i in range(3):
+                plus, minus = list(p), list(p)
+                plus[i] += 0.0001; minus[i] -= 0.0001
+                numerical = (cone.eval(fx.Vector(*plus)) - cone.eval(fx.Vector(*minus))) / 0.0002
+                self.assertAlmostEqual(g[i], numerical, delta=0.002)
+        npt = fx.make_iteratedNPT(cone, 5)
+        for p in (self.origin, fx.Vector(0, 1, 0), fx.Vector(0, 2, 0)):
+            self.assertTrue(all(math.isfinite(x) for x in xyz(npt.eval(p))))
+        transformed = fx.affine_transform_field(cone, self.origin, fx.Vector(0.5, 0, 0),
+                                                fx.Vector(0, 1, 0), fx.Vector(0, 0, 2))
+        g = xyz(transformed.grad(fx.Vector(1.4, 1, 0)))
+        source = xyz(cone.grad(fx.Vector(0.7, 1, 0)))
+        for a, b in zip(g, (source[0]*0.5, source[1], source[2]*2)):
+            self.assertAlmostEqual(a, b, places=5)
+        with self.assertRaises(ValueError):
+            fx.isf_cone(self.origin, self.origin, 2, 0.5)
+
     def test_noise_overloads(self):
         vals = fx.FSVals(0.5, 2.0, self.origin, 1.0, 2.0)
         direct = fx.fspn(vals, self.point)

@@ -1,4 +1,6 @@
 #include "implicit_fields.h"
+#include <algorithm>
+#include <cmath>
 
 
 using namespace lux;
@@ -11,19 +13,39 @@ const TorusField::volumeDataType TorusField::eval(const Vector& p) const {
 }
 
 
+namespace {
+struct ConeDistance { double da, dr, dist, sign; bool side; };
+ConeDistance cone_distance(double a, double r, double height, double theta) {
+    const double radius = height * std::tan(theta);
+    const double t = std::clamp((a * height + r * radius) / (height * height + radius * radius), 0.0, 1.0);
+    const double sa = a - t * height, sr = r - t * radius;
+    const double ca = a - height, cr = r - std::min(r, radius);
+    const bool side = sa*sa + sr*sr <= ca*ca + cr*cr;
+    const double da = side ? sa : ca, dr = side ? sr : cr;
+    const bool inside = a >= 0 && a <= height && r <= a * std::tan(theta);
+    return {da, dr, std::hypot(da, dr), inside ? -1.0 : 1.0, side};
+}
+}
+
 const ConeField::volumeDataType ConeField::eval(const Vector& p) const {
-    ConeField::volumeDataType return_val = {};
-    auto diff_dot_n = (p - _x_0) * _n_hat;
-    if (p == _x_0){
-        return_val = {};
-    } else if (diff_dot_n > _height){
-        return_val = diff_dot_n - _height; 
-    } else if (diff_dot_n < 0){
-        return_val = -diff_dot_n;
-    } else {
-        return_val = -_theta + std::acos(diff_dot_n / (p - _x_0).magnitude());
+    const Vector v = p - _x_0;
+    const double a = v * _n_hat;
+    const double r = (v - a * _n_hat).magnitude();
+    const auto d = cone_distance(a, r, _height, _theta);
+    return static_cast<float>(d.sign * d.dist);
+}
+
+const ConeField::volumeGradType ConeField::grad(const Vector& p) const {
+    const Vector v = p - _x_0;
+    const double a = v * _n_hat;
+    const Vector radial = v - a * _n_hat;
+    const double r = radial.magnitude();
+    const auto d = cone_distance(a, r, _height, _theta);
+    if (d.dist < 1e-12) {
+        if (r < 1e-12) return d.side ? Vector(0, 0, 0) : _n_hat;
+        return d.side ? -std::sin(_theta) * _n_hat + std::cos(_theta) * (radial / r) : _n_hat;
     }
-    return return_val;
+    return (d.sign / d.dist) * (d.da * _n_hat + (r > 1e-12 ? (d.dr / r) * radial : Vector(0, 0, 0)));
 }
 
 

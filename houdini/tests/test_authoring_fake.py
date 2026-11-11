@@ -306,8 +306,7 @@ class AuthoringContractTests(unittest.TestCase):
                 self.assertEqual(prim.attrs['pbvfx:operation'].value, op)
                 expected = ['/World/A'] if op in ('pyro', 'noise_warp', 'terrain_displace') else ['/World/A', '/World/B']
                 self.assertEqual(prim.rels['pbvfx:inputs'].targets, expected)
-                if op in ('add', 'subtract', 'noise_warp', 'terrain_displace'):
-                    self.assertEqual(prim.attrs['pbvfx:boundsMax'].typ, 'Point3f')
+                self.assertNotIn('pbvfx:boundsMax', prim.attrs)
                 if op == 'pyro': self.assertIn('pbvfx:iterations', prim.attrs)
                 if op == 'noise_warp': self.assertIn('pbvfx:normal', prim.attrs)
                 if op == 'terrain_displace':
@@ -347,7 +346,7 @@ class AuthoringContractTests(unittest.TestCase):
         with self.assertRaises(AuthoringError):
             author(self.stage, 'operation', op)
 
-    def test_signed_pyro_and_explicit_bounds(self):
+    def test_signed_pyro_ignores_old_bounds_controls(self):
         v = defaults('field'); v['path'] = '/World/A'
         author(self.stage, 'field', v)
         op = defaults('operation')
@@ -355,8 +354,8 @@ class AuthoringContractTests(unittest.TestCase):
                   use_pyro_bounds=True, bounds_min=(-4, -3, -2), bounds_max=(4, 3, 2))
         prim = author(self.stage, 'operation', op)
         self.assertEqual(prim.attrs['pbvfx:amplitude'].value, -0.5)
-        self.assertTrue(prim.attrs['pbvfx:usePyroBounds'].value)
-        self.assertEqual(prim.attrs['pbvfx:boundsMin'].value, (-4, -3, -2))
+        self.assertNotIn('pbvfx:usePyroBounds', prim.attrs)
+        self.assertNotIn('pbvfx:boundsMin', prim.attrs)
 
     def test_camera_guide_points_use_ray_distance(self):
         import math

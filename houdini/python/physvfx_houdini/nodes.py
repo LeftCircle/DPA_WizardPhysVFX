@@ -172,6 +172,15 @@ def refresh_selected_nodes():
         group = node.parmTemplateGroup()
         missing = [spec for spec in parameters(kind) if group.find('pv_' + spec.name) is None]
         menus_changed = False
+        if kind == 'operation':
+            # Keep legacy values and animation, but hide controls that no
+            # longer affect analytic operations.
+            for name in ('pv_bounds_min', 'pv_bounds_max', 'pv_use_pyro_bounds'):
+                old = group.find(name)
+                if old is not None and not old.isHidden():
+                    old.hide(True)
+                    group.replace(name, old)
+                    menus_changed = True
         for spec in parameters(kind):
             if spec.kind != 'menu':
                 continue

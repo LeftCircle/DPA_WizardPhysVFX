@@ -34,22 +34,6 @@ bool finite_vector(const Vector& v) {
     return std::isfinite(v.X()) && std::isfinite(v.Y()) && std::isfinite(v.Z());
 }
 
-// The existing marcher expects a level set for acceleration. A conservative
-// box encloses all fields; density is still evaluated from the actual scene.
-openvdb::FloatGrid::Ptr make_bounds_levelset(const Vector& lo, const Vector& hi, float voxel_size) {
-    const std::vector<openvdb::Vec3s> points = {
-        {float(lo.X()), float(lo.Y()), float(lo.Z())}, {float(hi.X()), float(lo.Y()), float(lo.Z())},
-        {float(hi.X()), float(hi.Y()), float(lo.Z())}, {float(lo.X()), float(hi.Y()), float(lo.Z())},
-        {float(lo.X()), float(lo.Y()), float(hi.Z())}, {float(hi.X()), float(lo.Y()), float(hi.Z())},
-        {float(hi.X()), float(hi.Y()), float(hi.Z())}, {float(lo.X()), float(hi.Y()), float(hi.Z())}
-    };
-    const std::vector<openvdb::Vec4I> faces = {
-        {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4},
-        {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}
-    };
-    return mesh_to_levelset(voxel_size, points, {}, faces, 3.0f);
-}
-
 void write_image(const ImageData& image, const std::string& filename) {
     auto output = OIIO::ImageOutput::create(filename);
     if (!output) throw std::runtime_error("Could not create image output: " + filename);
@@ -131,10 +115,7 @@ void render_usd_scene(const vspf& density, const vspc& color, const Camera& came
     marcher.set_max_ds(rs.max_step);
     marcher.set_exticntion_coefficient(rs.kappa);
     marcher.set_Tmin(0.001f);
-    std::cout << "[PhysVFX] Build render bounds: starting" << std::endl;
     auto start = Clock::now();
-    marcher.add_levelset(make_bounds_levelset(lo, hi, rs.get_density_vs()));
-    report_elapsed("Build render bounds", start);
     for (size_t i = 0; i < lights.size(); ++i) {
         const auto& light = lights[i];
         const auto label = "Shadow map " + std::to_string(i + 1) + "/" + std::to_string(lights.size());

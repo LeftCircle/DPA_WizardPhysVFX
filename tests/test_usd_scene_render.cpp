@@ -62,8 +62,10 @@ TEST_CASE("general USD renderer writes red and green volumes") {
         ~RemoveFile() { std::error_code ignored; std::filesystem::remove(path, ignored); }
     } remove_file{output}, remove_one_light{one_light_output}, remove_preview{preview_output};
 
+    // Both objects are outside this shadow-region estimate. They must still
+    // be visible in the normal render and progressive render.
     render_usd_scene(density, color, camera, lights, rs,
-        Vector(-2, -1.5, -1.5), Vector(2, 1.5, 1.5), output.string(), {}, {}, preview_output.string());
+        Vector(-0.1, -0.1, -0.1), Vector(0.1, 0.1, 0.1), output.string(), {}, {}, preview_output.string());
     auto image = OIIO::ImageInput::open(output.string());
     REQUIRE(image);
     REQUIRE(image->spec().width == rs.width);

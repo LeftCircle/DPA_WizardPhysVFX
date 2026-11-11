@@ -54,7 +54,7 @@ STAMP = (
 )
 BOUNDS = (
     P("bounds_min", "Bounds Minimum", "vector", (-2.0, -2.0, -2.0),
-      "World-space bounds in USD stage units; used by planes and bounded operations."),
+      "World-space bounds in USD stage units; used by bounded planes."),
     P("bounds_max", "Bounds Maximum", "vector", (2.0, 2.0, 2.0)),
 )
 
@@ -181,9 +181,7 @@ PARAMETERS = {
             P("gamma", "Pyro Gamma", "float", 1.0),
             P("iterations", "Pyro Iterations", "int", 1),
             P("normal", "Warp Direction", "vector", (0.0, 1.0, 0.0)),
-            P("use_pyro_bounds", "Use Explicit Pyro Bounds", "toggle", False,
-              "Clip pyro to the world-space bounds below; otherwise expanding pyro uses estimated bounds."),
-        ) + BOUNDS),
+        )),
     ),
     "camera": (("Camera", (
         P("path", "Camera Prim Path", "string", "/World/Camera"),

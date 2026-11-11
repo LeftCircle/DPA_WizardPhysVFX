@@ -128,6 +128,17 @@ void RayMarcher::ray_march_image(
     const VolumeSPtr<float>& density,
     const VolumeSPtr<Color>& color
 ) const {   
+    if (!_levelset) {
+        const int width = img.get_width(), height = img.get_height();
+        #pragma omp parallel for schedule(dynamic, 32)
+        for (int index = 0; index < width * height; ++index) {
+            const int x = index % width, y = index / width;
+            auto ray = get_ray(cam, x, y, width, height);
+            const Color pixel = ray_march_single_pixel(ray.dir(), ray.eye(), density, color);
+            img.set_pixel_values(x, y, {(float)pixel.red(), (float)pixel.green(), (float)pixel.blue(), (float)pixel.alpha()});
+        }
+        return;
+    }
     openvdb::tools::VolumeRayIntersector<openvdb::FloatGrid> main_rayinter(*_levelset);
 
     const int width = img.get_width();
@@ -162,6 +173,27 @@ void RayMarcher::ray_march_image_progressive(
     const auto xs = progressive_axis_order(width);
     const auto ys = progressive_axis_order(height);
     img.set_pixel_values(0.0f);
+    if (!_levelset) {
+        int previous_width = 0, previous_height = 0;
+        for (int pass = 1; pass <= 10; ++pass) {
+            const int sample_width = progressive_axis_count(width, pass);
+            const int sample_height = progressive_axis_count(height, pass);
+            const auto count = static_cast<std::int64_t>(sample_width) * sample_height;
+            #pragma omp parallel for schedule(dynamic, 32)
+            for (std::int64_t index = 0; index < count; ++index) {
+                const int ix = static_cast<int>(index % sample_width), iy = static_cast<int>(index / sample_width);
+                if (ix < previous_width && iy < previous_height) continue;
+                const int x = xs[ix], y = ys[iy];
+                auto ray = get_ray(cam, x, y, width, height);
+                const Color pixel = ray_march_single_pixel(ray.dir(), ray.eye(), density, color);
+                img.set_pixel_values(x, y, {(float)pixel.red(), (float)pixel.green(), (float)pixel.blue(), (float)pixel.alpha()});
+            }
+            previous_width = sample_width;
+            previous_height = sample_height;
+            if (on_pass) on_pass(img, pass);
+        }
+        return;
+    }
     openvdb::tools::VolumeRayIntersector<openvdb::FloatGrid> main_rayinter(*_levelset);
     int previous_width = 0, previous_height = 0;
     for (int pass = 1; pass <= 10; ++pass) {

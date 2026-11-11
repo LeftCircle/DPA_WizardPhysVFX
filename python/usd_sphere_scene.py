@@ -653,11 +653,11 @@ FIELD_OPERATIONS.update({
     'union': (2, _binary_operation('union_fields'), 'inputs'),
     'intersection': (2, _binary_operation('intersection'), 'inputs'),
     'cutout': (2, _binary_operation('cutout'), 'inputs'),
-    'pyro': (1, _pyro_operation, 'pyro'),
-    'noise_warp': (1, _noise_warp_operation, 'explicit'),
-    'terrain_displace': (1, _terrain_displace_operation, 'explicit'),
-    'add': (2, _binary_operation('add'), 'explicit'),
-    'subtract': (2, _binary_operation('subtract'), 'explicit'),
+    'pyro': (1, _pyro_operation, 'displacement'),
+    'noise_warp': (1, _noise_warp_operation, 'displacement'),
+    'terrain_displace': (1, _terrain_displace_operation, 'displacement'),
+    'add': (2, _binary_operation('add'), 'inputs'),
+    'subtract': (2, _binary_operation('subtract'), 'inputs'),
 })
 
 
@@ -726,23 +726,23 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
         if policy == 'explicit':
             lo, hi = _bounds(prim, scale)
             field = _clip_field(field, lo, hi)
-        elif policy == 'pyro':
-            if _custom(prim, 'usePyroBounds', False):
-                lo, hi = _bounds(prim, scale)
-                field = _clip_field(field, lo, hi)
+        elif policy == 'displacement':
+            if inputs[0].bounds_min is None:
+                lo = hi = None
             else:
-                if inputs[0].bounds_min is None:
-                    raise ValueError(f'{path}: pyro of an unbounded field requires explicit bounds')
-                # An estimate, not a mathematical bound for arbitrary fields.
-                amplitude = float(_custom(prim, 'amplitude', 0.25)) * scale
-                padding = 4.0 * max(amplitude, 0.0)
+                # Estimate only, for automatic grids and shadow regions. The
+                # analytic field and camera rays are never clipped by this box.
+                amplitude = abs(float(_custom(prim, 'amplitude', 0.25))) * scale
+                if name == 'terrain_displace' or (name == 'noise_warp' and str(_custom(prim, 'noiseType', 'fspn')) == 'fstn'):
+                    amplitude *= max(float(_custom(prim, 'terrainAmpPos', 1.0)), float(_custom(prim, 'terrainAmpNeg', 1.0)))
+                padding = 4.0 * amplitude
                 lo = tuple(x - padding for x in inputs[0].bounds_min)
                 hi = tuple(x + padding for x in inputs[0].bounds_max)
         elif policy == 'inputs':
             finite = [obj for obj in inputs if obj.bounds_min is not None]
             if name == 'cutout':
                 finite = inputs[:1] if inputs[0].bounds_min is not None else []
-            elif name == 'union' and len(finite) != len(inputs):
+            elif name in ('union', 'add', 'subtract') and len(finite) != len(inputs):
                 finite = []
             lo = tuple(min(obj.bounds_min[i] for obj in finite) for i in range(3)) if finite else None
             hi = tuple(max(obj.bounds_max[i] for obj in finite) for i in range(3)) if finite else None

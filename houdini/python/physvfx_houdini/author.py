@@ -293,8 +293,6 @@ def author_operation(stage, v):
         if not (source.IsA(UsdGeom.Mesh) or _tag(source, 'field_type') is not None or
                 _tag(source, 'isf_type') is not None or _tag(source, 'operation') is not None):
             raise AuthoringError(f'{target}: input is not a PhysVFX field, operation, or USD Mesh')
-    if name in ('add', 'subtract', 'noise_warp', 'terrain_displace'):
-        _bounds(v)
     _cache_name(v['cache_name'])
     if v['color_mode'] != 'inherit':
         _color(v['color'])
@@ -307,8 +305,6 @@ def author_operation(stage, v):
         if name == 'pyro':
             _positive(v['gamma'], 'Gamma')
             _integer(v['iterations'], 'Iterations', 1)
-            if v.get('use_pyro_bounds', False):
-                _bounds(v)
         elif name == 'terrain_displace':
             for key in ('terrainAmpPos', 'terrainAmpNeg'):
                 _number(v.get(key, 1.0), key, 0)
@@ -330,8 +326,6 @@ def author_operation(stage, v):
         raise AuthoringError(f'{path}: choose a separate Xform for the operation')
     _attr(prim, 'operation', 'Token', name)
     prim.CreateRelationship('pbvfx:inputs', custom=True).SetTargets(targets)
-    if name in ('add', 'subtract', 'noise_warp', 'terrain_displace'):
-        _write_bounds(prim, v)
     if name in ('pyro', 'noise_warp', 'terrain_displace'):
         for key in ('roughness', 'octaves', 'frequency', 'frequencyJump', 'amplitude'):
             _float(prim, key, float(v[key]))
@@ -339,9 +333,6 @@ def author_operation(stage, v):
         if name == 'pyro':
             _float(prim, 'gamma', float(v['gamma']))
             _attr(prim, 'iterations', 'Int', v['iterations'])
-            _attr(prim, 'usePyroBounds', 'Bool', bool(v.get('use_pyro_bounds', False)))
-            if v.get('use_pyro_bounds', False):
-                _write_bounds(prim, v)
         elif name == 'terrain_displace':
             for key, default in (('terrainAmpPos', 1.0), ('terrainAmpNeg', 1.0),
                                  ('terrainGammaPos', 1.0), ('terrainGammaNeg', 1.0),

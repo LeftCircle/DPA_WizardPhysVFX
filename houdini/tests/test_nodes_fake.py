@@ -26,6 +26,8 @@ class Template:
     def scriptCallback(self): return self.kwargs.get('script_callback', '')
     def setScriptCallback(self, callback): self.kwargs['script_callback'] = callback
     def setScriptCallbackLanguage(self, language): self.kwargs['script_callback_language'] = language
+    def isHidden(self): return self.kwargs.get('hidden', False)
+    def hide(self, hidden): self.kwargs['hidden'] = hidden
 
 
 class Folder(Template):
@@ -419,6 +421,18 @@ class NodeConstructionTests(unittest.TestCase):
             count = len(node.groups.folders)
             refresh_selected_nodes()
             self.assertEqual(len(node.groups.folders), count)
+
+    def test_refresh_hides_legacy_operation_bounds_without_deleting_values(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('operation', network=network)
+            old = Template('pv_use_pyro_bounds', 'Use Explicit Pyro Bounds', default_value=True)
+            node.groups.append(Folder('old', 'Old', parm_templates=(old,)))
+            node.setParmTemplateGroup(node.groups)
+            hou.selectedNodes = lambda: [node]
+            refresh_selected_nodes()
+            self.assertTrue(node.groups.find('pv_use_pyro_bounds').isHidden())
+            self.assertTrue(node.parm('pv_use_pyro_bounds').eval())
 
     def test_refresh_updates_field_menu_without_resetting_selection(self):
         hou = make_hou(); network = Network('lop')

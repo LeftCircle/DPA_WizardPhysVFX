@@ -83,7 +83,7 @@ unless it is represented by a separate prim. Operations can be chained.
 | **PhysVFX Shadow Region** | Creates a shadow region Xform and a red viewport guide. |
 | **PhysVFX Render and View** | Passes the scene through; saves a composed USDA, runs the renderer in the background, then opens the image viewer. |
 | **PhysVFX Shadow Cache** | Targets an existing region, saves its per-light shadow maps on demand, and enables disk-cache loading. |
-| **PhysVFX Operation** | `union`, `intersection`, `cutout`, `add`, `subtract`, `pyro`, and `noise_warp`. Authors `pbvfx:operation` and the ordered `pbvfx:inputs` relationship. Add, subtract, and noise warp clip to authored world-space bounds. |
+| **PhysVFX Operation** | `union`, `intersection`, `cutout`, `add`, `subtract`, `pyro`, `noise_warp`, and `terrain_displace`. Authors `pbvfx:operation` and the ordered `pbvfx:inputs` relationship. Analytic operation fields are not clipped to operation bounds. |
 | **PhysVFX Camera** | Creates or edits a USD perspective Camera, authoring focal length, horizontal/vertical aperture, near/far clipping and zero aperture offsets. A toggleable green guide shows the near/far ray-distance boundaries. Place it with Houdini's transform tools. |
 | **PhysVFX Light** | Creates or edits a USD SphereLight's color, intensity, exposure, and optional `pbvfx:shadowKappa`. Place it with Houdini's transform tools. |
 | **PhysVFX Render Settings** | Creates or edits a USD RenderSettings prim, its camera relationship, resolution and square-pixel aspect, plus all `pbvfx` ray-step, extinction, shadow and voxel controls used by the loader. |
@@ -118,8 +118,8 @@ inputs should reference the resulting full child path. Leave Parent Prim Path
 blank for the original absolute-path behavior. This creates or edits the child
 path; it does not move or remove an existing prim at the original path.
 Refresh existing Field nodes to add the control. Clear or rename stamp and
-shadow caches after moving fields. Bounded planes and bounded operations use
-world-space bounds, which do not automatically follow their parent.
+shadow caches after moving fields. Bounded planes use world-space bounds,
+which do not automatically follow their parent.
 
 Analytic surface previews update when their applicable radius, height, normal,
 cone angle, or box rounding controls change. Editing a sphere's **Radius** in
@@ -144,10 +144,9 @@ its name when the source or settings change.
 Noise operations expose `roughness`, `octaves`, `frequency`, `frequencyJump`,
 `noiseTranslation`, and `amplitude`. Pyro additionally uses `gamma` and
 `iterations`; noise warp uses `normal` as its direction. The normal for a field
-is local; the noise-warp direction and bounds are in stage world coordinates.
+is local; the noise-warp direction is in stage world coordinates.
 For arbitrary analytic fields or USD meshes, choose **Terrain Displace** on a
-PhysVFX Operation and set Input A to the field or mesh prim. Set the world-space
-Bounds Minimum/Maximum large enough for the displaced result. The nearest-point
+PhysVFX Operation and set Input A to the field or mesh prim. The nearest-point
 iterations and positive/negative terrain controls shape the displacement;
 Amplitude multiplies both terrain amplitudes. Meshes use a sampled level set,
 so voxel resolution and mesh half width affect the result. Clear old stamp or
@@ -158,8 +157,7 @@ bounded plane as Input A, and choose **Fractal Sum Terrain** under **Warp Noise
 Type**. The positive and negative terrain amplitudes and gammas shape the two
 halves of the noise independently; gamma transitions linearly from 1 at zero
 to its selected value at the positive **Terrain Gamma Transition** magnitude.
-The regular warp Amplitude scales the resulting displacement, and the operation
-bounds clip it. Existing scenes default to Fractal Sum Perlin. For an existing
+The regular warp Amplitude scales the resulting displacement. Existing scenes default to Fractal Sum Perlin. For an existing
 operation node, select it and use **Refresh PhysVFX Parameters** on the shelf
 to add the new controls.
 
@@ -168,11 +166,11 @@ t_point)`, where `values` is an `FSVals`. Amplitudes must be non-negative;
 gammas and the transition magnitude must be positive. Rebuild the Python
 extension after updating the source.
 Positive pyro amplitude expands the field; negative amplitude contracts it.
-The automatic bounds for expanding pyro are an estimate, so enable **Use
-Explicit Pyro Bounds** and set **Bounds Minimum/Maximum** in world space when
-the result is clipped or when reliable bounds are needed. Those controls also
-apply to planes and the three bounded operations. They are not Houdini
-transform handles. Clear or rename any stamp cache after changing parameters.
+Operations are evaluated between the camera near and far distances without an
+operation clipping box. This may take longer than an accelerated bounded render.
+Automatic shadow regions and implicit stamp grids still use estimated extents;
+use a shadow region or specified stamp bounds if those estimates are too small.
+Clear or rename caches after changing parameters.
 
 **Color Authoring** can inherit upstream color, write a constant USD
 `primvars:displayColor` (also useful for the viewport), or write
@@ -280,15 +278,15 @@ Explicit stamp bounds apply to analytic/operation stamps and optional mesh
 resampling, not the initial mesh-to-level-set conversion or wisp deposition.
 The loader reports an error if specified bounds are enabled for an unstamped
 field or a wisp. Bounds clip the result, so leave room for displacement.
-Existing world-space bounds for planes and arithmetic operations and **Use
-Explicit Pyro Bounds** keep their original meaning and can further clip the
-field independently of stamp bounds.
+Bounded planes retain their own world-space clipping bounds. Legacy operation
+bounds and **Use Explicit Pyro Bounds** are ignored for analytic operations.
 
 Existing Python LOPs keep their old spare parameters. After restarting Houdini,
 select one or more PhysVFX nodes and click **Refresh PhysVFX Parameters** on the
 PhysVFX shelf. Missing controls are added in a **PhysVFX Updates** tab without
 resetting existing values. This also exposes any older missing controls, such
-as **Use Explicit Pyro Bounds**. Newly created nodes already contain them.
+as stamp bounds. Refresh also hides obsolete operation bounds controls without
+deleting their saved values. Newly created nodes already contain current controls.
 
 ### Shadow map regions
 

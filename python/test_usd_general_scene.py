@@ -84,9 +84,6 @@ class GeneralSceneTests(unittest.TestCase):
                          {'union', 'intersection', 'cutout', 'add', 'subtract',
                           'pyro', 'noise_warp', 'wisp'})
         self.assertEqual(sum(o.kind == 'wisp' for o in scene.objects), 2)
-        for kind in ('add', 'subtract', 'noise_warp'):
-            obj = next(o for o in scene.objects if o.kind == kind)
-            self.assertGreater(obj.field.eval(fx.Vector(100, 100, 100)), 0)
 
     def test_stage_helpers_and_derived_bounds(self):
         stage = Usd.Stage.Open(str(SCENE))

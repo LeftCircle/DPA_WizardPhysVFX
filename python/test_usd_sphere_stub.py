@@ -291,7 +291,7 @@ class TranslationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'requires 2'):
             module.load_scene('scene')
 
-    def test_arithmetic_operation_requires_explicit_bounds(self):
+    def test_arithmetic_operation_does_not_clip_to_bounds(self):
         module, sphere, _, _, _, _ = fixture()
         stage = module.Usd.Stage.Open('scene')
         original = list(stage.Traverse())
@@ -300,12 +300,11 @@ class TranslationTests(unittest.TestCase):
         module.fx.add = lambda a, b: ('add', a, b)
         module.fx.make_plane = lambda p, n: ('plane', p, n)
         module.fx.intersection = lambda a, b: ('intersection', a, b)
-        with self.assertRaisesRegex(ValueError, 'explicit'):
-            module.load_scene('scene')
+        scene = module.load_scene('scene')
+        self.assertEqual(scene.sdf[0], 'add')
         op.values.update({'pbvfx:boundsMin': (-10, -10, -10), 'pbvfx:boundsMax': (10, 10, 10)})
         scene = module.load_scene('scene')
-        self.assertEqual(scene.objects[0].bounds_min, (-5, -5, -5))
-        self.assertEqual(scene.sdf[0], 'intersection')
+        self.assertEqual(scene.sdf[0], 'add')
 
     def test_terrain_displace_consumes_field_and_converts_units(self):
         module, sphere, _, _, _, _ = fixture()
@@ -326,7 +325,8 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual([item.path for item in scene.objects], ['/terrain'])
         self.assertEqual(calls[0][2:], (3, 4, 2, 0.5, 0.2, 3))
         self.assertEqual(calls[0][1][1][3], 2.0)
-        self.assertEqual(scene.objects[0].bounds_max, (5, 5, 5))
+        self.assertEqual(scene.sdf[0], 'terrain')
+        self.assertGreater(scene.objects[0].bounds_max[0], 5)
         op.values['pbvfx:terrainIterations'] = 0
         with self.assertRaisesRegex(ValueError, 'iterations'):
             module.load_scene('scene')
@@ -353,7 +353,7 @@ class TranslationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unbounded root'):
             module.load_scene('scene')
 
-    def test_pyro_signed_amplitude_and_explicit_bounds(self):
+    def test_pyro_signed_amplitude_and_old_bounds_ignored(self):
         module, sphere, _, _, _, _ = fixture()
         stage = module.Usd.Stage.Open('scene')
         original = list(stage.Traverse())
@@ -366,14 +366,14 @@ class TranslationTests(unittest.TestCase):
         op.values['pbvfx:amplitude'] = 0.5
         expanded = module.load_scene('scene')
         self.assertEqual(expanded.sdf[1][6], 0.25)
-        self.assertLess(expanded.objects[0].bounds_min[0], scene.objects[0].bounds_min[0])
+        self.assertEqual(expanded.objects[0].bounds_min, scene.objects[0].bounds_min)
         op.values.update({'pbvfx:usePyroBounds': True, 'pbvfx:boundsMin': (-10, -10, -10),
                           'pbvfx:boundsMax': (10, 10, 10)})
         module.fx.make_plane = lambda p, n: ('plane', p, n)
         module.fx.intersection = lambda a, b: ('intersection', a, b)
         bounded = module.load_scene('scene')
-        self.assertEqual(bounded.sdf[0], 'intersection')
-        self.assertEqual(bounded.objects[0].bounds_min, (-5, -5, -5))
+        self.assertEqual(bounded.sdf[0], 'pyro')
+        self.assertEqual(bounded.objects[0].bounds_min, expanded.objects[0].bounds_min)
 
     def test_wisp_uses_density_and_transformed_grid_bounds(self):
         module, sphere, _, _, _, _ = fixture()
@@ -424,7 +424,7 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual([o.kind for o in scene.objects], ['noise_warp'])
         self.assertAlmostEqual(seen[0][3], 0.25)
         self.assertEqual(seen[0][1][0], 'noise')
-        self.assertEqual(scene.objects[0].bounds_min, (-1, -1, -1))
+        self.assertEqual(scene.sdf[0], 'warp')
 
         warp.values.update({'pbvfx:noiseType': 'fstn', 'pbvfx:terrainAmpPos': 2,
                             'pbvfx:terrainAmpNeg': 3, 'pbvfx:terrainGammaPos': 4,

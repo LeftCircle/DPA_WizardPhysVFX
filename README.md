@@ -342,14 +342,13 @@ input and calls `fx.make_pyro`. Pyro supports `pbvfx:roughness` (0.5),
 `octaves` (3), `frequency` (1), `frequencyJump` (2), `amplitude` (0.25),
 `gamma` (1), `iterations` (1), and `noiseTranslation` ((0, 0, 0)).
 Amplitude and translation are in stage length units. Positive pyro amplitude
-expands the field and negative amplitude contracts it. Without explicit bounds,
-the loader estimates an expanding pyro's bounds by padding the input bounds by
-four times its positive amplitude; this is not guaranteed for arbitrary fields
-or noise. Set `pbvfx:usePyroBounds = true` and author world-space
-`pbvfx:boundsMin` and `pbvfx:boundsMax` to clip pyro to a known box. Choose
-the box large enough for the desired effect. Arithmetic operations may extend beyond
-those bounds, so they require explicit `point3f pbvfx:boundsMin` and
-`pbvfx:boundsMax` in stage world units; the result is clipped to that box. Invalid relationships, unknown
+expands the field and negative amplitude contracts it. Analytic operations are
+not clipped to authored operation bounds; camera rays are marched between their
+near and far distances. This can be slower than bounded acceleration. The loader
+estimates extents for automatic shadow maps and stamping; these estimates are
+not guaranteed for arbitrary fields. Use explicit shadow regions or stamp
+bounds where necessary. Legacy operation bounds and usePyroBounds are ignored.
+Invalid relationships, unknown
 operations, and cyclic graphs raise errors.
 
 Define operations in the same stage as the layout, or put them in a layer

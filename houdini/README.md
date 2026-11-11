@@ -109,6 +109,18 @@ must have finite bounds. To stamp an unbounded plane, enable **Stamp Field** and
 from rendering. To add the new menu option to existing Field nodes, select them
 and use **Refresh PhysVFX Parameters** after restarting Houdini.
 
+To parent a new field, set **Parent Prim Path** to an existing upstream prim,
+and set **Prim Path** to a path with the desired child name. For example,
+parent `/World/Parent` and prim path `/World/Child` create
+`/World/Parent/Child`. The child begins at the parent's local origin and
+inherits its transform; use a Transform LOP on the child for an offset. Operation
+inputs should reference the resulting full child path. Leave Parent Prim Path
+blank for the original absolute-path behavior. This creates or edits the child
+path; it does not move or remove an existing prim at the original path.
+Refresh existing Field nodes to add the control. Clear or rename stamp and
+shadow caches after moving fields. Bounded planes and bounded operations use
+world-space bounds, which do not automatically follow their parent.
+
 Analytic surface previews update when their applicable radius, height, normal,
 cone angle, or box rounding controls change. Editing a sphere's **Radius** in
 the UI enables **Override Sphere Radius**; disabling the override instead uses

@@ -196,6 +196,13 @@ def author_field(stage, v):
     if kind not in dict(FIELD_KINDS):
         raise AuthoringError(f'Unsupported field type: {kind}')
     path = _path(v['path'], 'Prim path')
+    parent_text = str(v.get('parent_path', '')).strip()
+    if parent_text:
+        parent_path = _path(parent_text, 'Parent prim path')
+        if not stage.GetPrimAtPath(parent_path):
+            raise AuthoringError(f'{parent_path}: parent prim does not exist in the upstream stage')
+        child_name = str(path).rsplit('/', 1)[-1]
+        path = _path(str(parent_path) + '/' + child_name, 'Child prim path')
     # Validate these before mutating the stage.
     _cache_name(v['cache_name'])
     if v['color_mode'] != 'inherit':

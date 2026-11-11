@@ -111,7 +111,9 @@ PARAMETERS = {
     "field": (
         ("Field", (
             P("path", "Prim Path", "string", "/World/PhysVFXField",
-              "Absolute USD prim path; use an existing prim or enable creation."),
+              "Absolute USD prim path; when Parent Prim Path is set, only its final name is used."),
+            P("parent_path", "Parent Prim Path", "string", "",
+              "Optional existing parent prim. The field is created beneath it at local origin; the prim path uses the name above. This does not move existing prims."),
             P("kind", "Field Type", "menu", "isf_sphere", choices=FIELD_KINDS),
             P("create", "Create Missing Prim", "toggle", True,
               "Create a Sphere or Xform. Mesh fields require an existing USD Mesh."),

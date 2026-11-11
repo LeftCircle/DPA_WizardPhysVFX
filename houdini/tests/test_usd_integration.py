@@ -22,6 +22,17 @@ except ImportError:
 
 @unittest.skipUnless(HAS_USD, 'requires OpenUSD Python bindings')
 class RealUSDTests(unittest.TestCase):
+    def test_child_inherits_parent_translation(self):
+        stage = Usd.Stage.CreateInMemory()
+        v = defaults('field'); v.update(path='/World/Parent')
+        parent = author(stage, 'field', v)
+        child_values = defaults('field')
+        child_values.update(path='/World/Child', parent_path='/World/Parent')
+        child = author(stage, 'field', child_values)
+        self.assertEqual(str(child.GetPath()), '/World/Parent/Child')
+        UsdGeom.XformCommonAPI(parent).SetTranslate(Gf.Vec3d(2, 3, 4))
+        pos = UsdGeom.XformCache().GetLocalToWorldTransform(child).ExtractTranslation()
+        self.assertEqual(tuple(pos), (2, 3, 4))
     def test_sphere_radius_override_updates_native_viewport_prim(self):
         stage = Usd.Stage.CreateInMemory()
         v = defaults('field'); v.update(override_radius=True, radius=2.5)

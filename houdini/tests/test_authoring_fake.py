@@ -141,6 +141,20 @@ class AuthoringContractTests(unittest.TestCase):
                     self.assertEqual(prim.attrs['pbvfx:wispDots'].value, 100000)
                     self.assertIn('pbvfx:wispNoise2Translation', prim.attrs)
 
+    def test_field_child_path_uses_existing_parent_and_name(self):
+        parent = defaults('field'); parent.update(path='/World/Parent')
+        author(self.stage, 'field', parent)
+        child = defaults('field'); child.update(path='/World/Child', parent_path='/World/Parent', kind='isf_torus')
+        prim = author(self.stage, 'field', child)
+        self.assertEqual(prim.GetPath(), '/World/Parent/Child')
+        self.assertEqual(prim.attrs['pbvfx:isf_type'].value, 'isf_torus')
+        child['parent_path'] = '/World/Missing'
+        with self.assertRaisesRegex(AuthoringError, 'parent prim does not exist'):
+            author(self.stage, 'field', child)
+        child['parent_path'] = 'relative'
+        with self.assertRaisesRegex(AuthoringError, 'absolute USD prim path'):
+            author(self.stage, 'field', child)
+
     def test_stamp_controls_author_and_red_guide(self):
         v = defaults('field')
         v.update(path='/World/Thing', stamp=True, use_stamp_voxel_size=True,

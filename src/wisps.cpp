@@ -41,8 +41,59 @@ WispGuideParticle interpolate(
     );
 }
 
-vspf wisp_spline(const std::vector<WispGuideParticle>& guide_particles, size_t n_dots){
-    
+
+WispSpline::WispSpline(
+        const std::vector<WispGuideParticle>& guide_particles,
+        size_t n_dots,
+        float voxel_size,
+        int seed
+) : _guide_particles(guide_particles), _n_dots(n_dots), _voxel_size(voxel_size), _seed(seed) 
+{
+    // determine the length of the segment
+    float l = 0;
+    for (int i = 0; i < _guide_particles.size() - 1; i++){
+        l += (_guide_particles[i + 1].location - _guide_particles[i].location).magnitude();
+    };
+    _spline_length = l;
+}
+
+vspf WispSpline::stamp_wisp_spline(){
+    auto grid = create_float_grid(_voxel_size, 0.0001);
+    auto accessor = grid->getAccessor();
+    const auto& transform = grid->transform();
+    auto rng = [
+        engine = std::mt19937{static_cast<std::mt19937::result_type>(_seed)},
+        distribution = std::uniform_real_distribution<float>{}
+    ](float min, float max) mutable {
+        using Params = decltype(distribution)::param_type;
+        return distribution(engine, Params{min, max});
+    };
+    for (size_t i = 0; i < _n_dots; ++i) {
+        float t = rng(0, 1);
+
+        // Locate neighboring guides and the local parameter u.
+        auto [segment, u] = _locate_segment(t);
+
+        // A small, stack-allocated value: no heap allocation.
+        auto params = interpolate(_guide_particles[segment], _guide_particles[segment + 1], u);
+
+        _stamp_one_wisp_dot(params, rng, accessor, transform);
+    }
+}
+
+
+std::pair<int, float> WispSpline::_locate_segment(float t){
+    float dist = _spline_length * t;
+    float accumulated_length = 0;
+    for (int i = 0; i < _guide_particles.size() - 1; i++){
+        float segment_length = (_guide_particles[i + 1].location - _guide_particles[i].location).magnitude();
+        if (accumulated_length + segment_length >= dist){
+            float u = (dist - accumulated_length) / segment_length;
+            return {i, u};
+        }
+        accumulated_length += segment_length;
+    }
+    return {_guide_particles.size() - 2, 1.0f};
 }
 
 } // end namespace lux

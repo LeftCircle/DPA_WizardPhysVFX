@@ -195,8 +195,47 @@ WispGuideParticle interpolate(
     float t
 );
 
+class WispSpline{
+public:
+    WispSpline(
+        const std::vector<WispGuideParticle>& guide_particles,
+        size_t n_dots,
+        float voxel_size,
+        int seed
+    );
 
-vspf wisp_spline(const std::vector<WispGuideParticle>& guide_particles, size_t n_dots);
+    vspf stamp_wisp_spline();
+
+private:
+    template <typename RNGFunc>
+    void _stamp_one_wisp_dot(
+        const WispGuideParticle& params,
+        RNGFunc& rng,
+        openvdb::FloatGrid::Accessor& accessor,
+        const openvdb::math::Transform& transform
+    ){
+        Vector p0 = Vector(rng(-1.0, 1.0), rng(-1.0, 1.0), rng(-1.0, 1.0));
+        p0 = p0 == Vector(0, 0, 0) ? Vector(rng(-1.0, 1.0), rng(-1.0, 1.0), 1) : p0;
+        Vector proj = p0 / p0.magnitude();
+        float r = std::pow(std::abs(fspn<float, Vector>(params.fspn1, p0)), params.clump);
+        auto p3 = r * proj;
+        // apply guid particle location and pscale
+        auto p4 = params.location + params.pscale * p3[0] * params.axis.t + p3[1] * params.axis.n + p3[2] * params.axis.b;
+        // now displacement vec -> this should make x/y/z have similar ish values
+        auto d = Vector(fspn<float>(params.fspn2, p3), fspn<float, Vector>(params.fspn2, p3 + params.displacement), fspn<float>(params.fspn2, p3 - params.displacement));
+        auto p5 = p4 + d;
+        // Now bake the value into the grid
+        trilinear_deposit(accessor, transform, {p5[0], p5[1], p5[2]}, params.dens);
+    }
+    std::pair<int, float> _locate_segment(float t);
+
+private:
+    std::vector<WispGuideParticle> _guide_particles;
+    size_t _n_dots;
+    float _voxel_size;
+    int _seed;
+    float _spline_length;
+};
 
 
 } // end namespace lux

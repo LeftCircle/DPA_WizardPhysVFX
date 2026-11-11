@@ -69,6 +69,8 @@ class HoudiniLOPTests(unittest.TestCase):
         self.assertIsNotNone(node.parm('pv_usd_path'))
         self.assertIsNotNone(node.parm('pv_image_path'))
         self.assertIsNotNone(node.parm('pv_progressive_preview'))
+        self.assertIsNotNone(node.parm('pv_continuous_preview'))
+        self.assertFalse(node.parm('pv_continuous_preview').eval())
 
     def test_node_chain_authors_composed_usd(self):
         camera = self.add('camera')

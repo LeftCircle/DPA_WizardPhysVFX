@@ -350,7 +350,7 @@ def get_isf_object(prim, cache, unit_scale):
 class StampCache:
     """Named VDB caches; names are explicit keys and are not auto-invalidated."""
     def __init__(self, directory):
-        self.directory = Path(directory)
+        self.directory = Path(directory) if directory is not None else None
         self.owners = {}
 
     def path_for(self, prim):
@@ -363,6 +363,8 @@ class StampCache:
         if name in self.owners and self.owners[name] != path:
             raise ValueError(f'{path}: duplicate pbvfx:cacheName {name!r}')
         self.owners[name] = path
+        if self.directory is None:
+            return None
         return self.directory / (name + '.vdb')
 
     def load(self, prim):
@@ -398,9 +400,9 @@ def _include_grid_bounds(item, grid):
         item.bounds_max = tuple(max(item.bounds_max[i], bounds[1][i] + pad) for i in range(3))
 
 
-def _object_voxel_size(prim, settings, scale):
+def _object_voxel_size(prim, settings, scale, override_multiplier=1.0):
     value = _positive(_custom(prim, 'stampVoxelSize', 0.0), 'pbvfx:stampVoxelSize', allow_zero=True)
-    return value * scale if value else _positive(settings.density_voxel_size, 'density voxel size')
+    return value * scale * override_multiplier if value else _positive(settings.density_voxel_size, 'density voxel size')
 
 
 def _stamp_world_bounds(prim, matrix, scale):
@@ -414,11 +416,11 @@ def _stamp_world_bounds(prim, matrix, scale):
             tuple(max(p[i] for p in corners) for i in range(3)))
 
 
-def get_mesh_object(prim, settings, volume_meters_per_unit=1.0, stamp_cache=None, unit_scale=1.0):
+def get_mesh_object(prim, settings, volume_meters_per_unit=1.0, stamp_cache=None, unit_scale=1.0, preview=None):
     """Convert a USD Mesh to a grid-backed field, optionally reusing a cache."""
     from usd_mesh import mesh_prim_to_field, mesh_world_bounds
     half_width = _positive(_custom(prim, 'meshHalfWidth', 3.0), 'pbvfx:meshHalfWidth')
-    voxel_size = _object_voxel_size(prim, settings, unit_scale)
+    voxel_size = _object_voxel_size(prim, settings, unit_scale, preview.voxel_multiplier if preview else 1.0)
     name = _custom(prim, 'cacheName', None)
     grid = stamp_cache.load(prim) if stamp_cache and name else None
     hit = grid is not None
@@ -482,7 +484,7 @@ def get_infinite_plane_object(prim, cache, scale):
                        bounds_min=None, bounds_max=None)
 
 
-def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
+def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None, preview=None):
     """Create a seeded wisp density grid in local coordinates."""
     if _custom(prim, 'field_type', None) != 'wisp':
         return None
@@ -490,6 +492,13 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
     if dots <= 0 or dots > 2147483647:
         raise ValueError(f'{prim.GetPath()}: pbvfx:wispDots must be between 1 and 2147483647')
     density = _positive(_custom(prim, 'wispDensity', 1.0), 'pbvfx:wispDensity')
+    if preview:
+        original_dots = dots
+        dots = max(1, round(dots * preview.dot_fraction))
+        # Dots are deposited into voxels as density samples. Preserve the
+        # approximate integrated density when reducing dots or enlarging voxels.
+        density *= (original_dots / dots / preview.voxel_multiplier /
+                    preview.voxel_multiplier / preview.voxel_multiplier)
     clump = _positive(_custom(prim, 'wispClump', 1.0), 'pbvfx:wispClump')
     pscale = _positive(_custom(prim, 'wispPscale', 1.0), 'pbvfx:wispPscale')
     minimum = float(_custom(prim, 'wispMin', -1.0))
@@ -504,7 +513,7 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
                          _positive(_custom(prim, prefix + 'FrequencyJump', 1.0), prefix + 'FrequencyJump'))
     seed = int(_custom(prim, 'wispSeed', 1))
     displacement = _fxvec(_vec(_custom(prim, 'wispDisplacement', (1, 1, 1))))
-    voxel = _object_voxel_size(prim, settings, unit_scale) / unit_scale
+    voxel = _object_voxel_size(prim, settings, unit_scale, preview.voxel_multiplier if preview else 1.0) / unit_scale
     grid = stamp_cache.load(prim) if stamp_cache else None
     hit = grid is not None
     if not hit:
@@ -535,7 +544,7 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
                        bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit)
 
 
-def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None):
+def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, preview=None):
     """Stamp resolved local-space guide data to a density grid, or load its cache."""
     path = str(prim.GetPath())
     dots = int(_custom(prim, 'splineDots', 0))
@@ -565,7 +574,13 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None):
         else:
             channels[name] = [_positive(v, 'pbvfx:spline_' + name,
                                         allow_zero=(name == 'density' or name.endswith('Roughness'))) for v in arr]
-    voxel = _object_voxel_size(prim, settings, unit_scale) / unit_scale
+    if preview:
+        original_dots = dots
+        dots = max(1, round(dots * preview.dot_fraction))
+        compensation = (original_dots / dots / preview.voxel_multiplier /
+                        preview.voxel_multiplier / preview.voxel_multiplier)
+        channels['density'] = [x * compensation for x in channels['density']]
+    voxel = _object_voxel_size(prim, settings, unit_scale, preview.voxel_multiplier if preview else 1.0) / unit_scale
     grid = stamp_cache.load(prim) if stamp_cache else None
     hit = grid is not None
     if not hit:
@@ -602,7 +617,7 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None):
                        bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit)
 
 
-def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_scale=1.0):
+def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_scale=1.0, preview=None):
     """Optionally sample an object field into its own world-space grid."""
     stamp = _custom(prim, 'stamp', False)
     if not isinstance(stamp, bool):
@@ -627,7 +642,7 @@ def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_sc
             item.cache_hit = True
             _include_grid_bounds(item, grid)
             return item
-        voxel_size = _object_voxel_size(prim, settings, unit_scale)
+        voxel_size = _object_voxel_size(prim, settings, unit_scale, preview.voxel_multiplier if preview else 1.0)
         padding = 2.0 * voxel_size
         lo = tuple(x - padding for x in item.bounds_min)
         hi = tuple(x + padding for x in item.bounds_max)
@@ -728,11 +743,11 @@ FIELD_OPERATIONS.update({
 })
 
 
-def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="cache"):
+def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="cache", preview=None):
     """Resolve geometry and operation relationships; return unconsumed roots."""
     scale = _unit_scale(stage, volume_meters_per_unit)
     cache = UsdGeom.XformCache(Usd.TimeCode.Default())
-    stamp_cache = StampCache(cache_dir)
+    stamp_cache = StampCache(None if preview else cache_dir)
     # Houdini viewport guides are geometry but are not renderer scene objects.
     prims = [p for p in stage.Traverse() if not _custom(p, 'preview', False)]
     operations = {}
@@ -754,9 +769,9 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
         if field_type and _custom(prim, 'isf_type', None) is not None:
             raise ValueError(f'{path}: choose either pbvfx:field_type or pbvfx:isf_type')
         if field_type == 'wisp':
-            item = get_wisp_object(prim, cache, settings, scale, stamp_cache)
+            item = get_wisp_object(prim, cache, settings, scale, stamp_cache, preview)
         elif field_type == 'wisp_spline':
-            item = get_wisp_spline_object(prim, cache, settings, scale, stamp_cache)
+            item = get_wisp_spline_object(prim, cache, settings, scale, stamp_cache, preview)
         elif field_type == 'plane':
             item = get_plane_object(prim, cache, scale)
         elif field_type == 'infinite_plane':
@@ -764,11 +779,11 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
         else:
             item = get_isf_object(prim, cache, scale)
         if item is None and prim.IsA(UsdGeom.Mesh):
-            item = get_mesh_object(prim, settings, volume_meters_per_unit, stamp_cache, scale)
+            item = get_mesh_object(prim, settings, volume_meters_per_unit, stamp_cache, scale, preview)
         elif item is None and prim.IsA(UsdGeom.Gprim):
             raise ValueError(f'{path}: untagged geometry must be a USD Mesh')
         if item is not None:
-            objects[path] = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale)
+            objects[path] = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale, preview)
 
     consumed, active = set(), set()
 
@@ -821,7 +836,7 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
                                       prim.GetAttribute('pbvfx:color')) else inputs[0].rgb
         item = SceneObject(path, name, field, fx.Color(*rgb, 0), rgb,
                            bounds_min=lo, bounds_max=hi)
-        objects[path] = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale)
+        objects[path] = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale, preview)
         return objects[path]
 
     for path in operations:
@@ -987,7 +1002,23 @@ def get_shadow_regions(stage, volume_meters_per_unit=1.0):
     return regions
 
 
-def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache"):
+@dataclass(frozen=True)
+class PreviewQuality:
+    resolution_scale: float = 0.25
+    step_multiplier: float = 4.0
+    voxel_multiplier: float = 2.0
+    dot_fraction: float = 0.25
+
+    def __post_init__(self):
+        for name, value in (('resolution scale', self.resolution_scale), ('dot fraction', self.dot_fraction)):
+            if not math.isfinite(value) or not 0 < value <= 1:
+                raise ValueError(f'Preview {name} must be in (0, 1]')
+        for name, value in (('step multiplier', self.step_multiplier), ('voxel multiplier', self.voxel_multiplier)):
+            if not math.isfinite(value) or value < 1:
+                raise ValueError(f'Preview {name} must be at least 1')
+
+
+def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache", preview=None):
     """Return PhysVFX components and combined fields for a USD stage."""
     with _timed(f'Open USD stage {filename}'):
         stage = Usd.Stage.Open(str(filename))
@@ -996,9 +1027,18 @@ def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache"):
     with _timed('Read camera, render settings and lights'):
         camera = get_camera_info(stage, volume_meters_per_unit)
         settings = get_render_settings(stage, volume_meters_per_unit, camera)
+        if preview:
+            settings.width = max(1, round(settings.width * preview.resolution_scale))
+            settings.height = max(1, round(settings.height * preview.resolution_scale))
+            settings.min_step *= preview.step_multiplier
+            settings.max_step *= preview.step_multiplier
+            settings.shadow_step *= preview.step_multiplier
+            settings.density_voxel_size *= preview.voxel_multiplier
+            settings.color_voxel_size *= preview.voxel_multiplier
+            settings.shadow_voxel_size *= preview.voxel_multiplier
         lights = get_lights(stage, settings, volume_meters_per_unit)
     with _timed('Build scene fields and operations'):
-        objects = get_scene_objects(stage, settings, volume_meters_per_unit, cache_dir)
+        objects = get_scene_objects(stage, settings, volume_meters_per_unit, cache_dir, preview)
     if not objects:
         raise ValueError('No tagged ISFs or USD meshes found')
     _progress(f'Scene contains {len(objects)} root field(s) and {len(lights)} light(s)')
@@ -1013,7 +1053,7 @@ def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache"):
     padding = 3 * max(settings.density_voxel_size, settings.color_voxel_size, settings.shadow_voxel_size)
     bounds_min = tuple(min(obj.bounds_min[i] for obj in objects) - padding for i in range(3))
     bounds_max = tuple(max(obj.bounds_max[i] for obj in objects) + padding for i in range(3))
-    specs = [{'path': str(p.GetPath()), 'load': bool(_custom(p, 'shadowCacheLoad', False)),
+    specs = [{'path': str(p.GetPath()), 'load': bool(_custom(p, 'shadowCacheLoad', False)) and not preview,
               'directory': str(_custom(p, 'shadowCacheDir', ''))}
              for p in stage.Traverse() if _custom(p, 'shadowRegion', False)]
     light_paths = [str(p.GetPath()) for p in stage.Traverse() if p.IsA(UsdLux.SphereLight)]
@@ -1029,6 +1069,11 @@ def main(argv=None):
     parser.add_argument('--save-shadow-cache', metavar='REGION_PRIM_PATH', help='Build and save only this region’s shadow maps')
     parser.add_argument('--volume-meters-per-unit', type=float, default=1.0)
     parser.add_argument('--cache-dir', default='cache', help='Directory for named stamp caches (default: cache)')
+    parser.add_argument('--live-preview', action='store_true', help='Use temporary, reduced-quality interactive rendering')
+    parser.add_argument('--live-resolution-scale', type=float, default=0.25)
+    parser.add_argument('--live-step-multiplier', type=float, default=4.0)
+    parser.add_argument('--live-voxel-multiplier', type=float, default=2.0)
+    parser.add_argument('--live-dot-fraction', type=float, default=0.25)
     args = parser.parse_args(argv)
     _progress(f'Starting USD render: {args.scene}')
     start = time.perf_counter()
@@ -1039,7 +1084,9 @@ def main(argv=None):
     if args.preview_image and Path(args.preview_image).resolve() == Path(args.output).resolve():
         parser.error('--preview-image and --output must be different files')
     try:
-        scene = load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir)
+        preview = PreviewQuality(args.live_resolution_scale, args.live_step_multiplier,
+                                 args.live_voxel_multiplier, args.live_dot_fraction) if args.live_preview else None
+        scene = load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir, preview)
         if args.save_shadow_cache:
             scene.save_shadow_cache(args.save_shadow_cache)
         if args.output:

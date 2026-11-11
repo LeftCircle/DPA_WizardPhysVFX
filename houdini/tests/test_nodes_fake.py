@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, activate_sphere_radius_override, _resolve_renderer_python, _monitor_render_worker, _renderer_environment, _cancel_previous_render, _render_jobs
+from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, activate_sphere_radius_override, set_continuous_preview, _resolve_renderer_python, _monitor_render_worker, _renderer_environment, _cancel_previous_render, _render_jobs
 from test_authoring_fake import Stage, fake_pxr
 from physvfx_houdini.schema import defaults
 
@@ -136,6 +136,36 @@ def make_hou():
 
 
 class NodeConstructionTests(unittest.TestCase):
+    def test_continuous_preview_toggle_starts_and_stops_session(self):
+        hou = make_hou(); hou.isUIAvailable = lambda: True
+        with patch.dict(sys.modules, {'hou': hou}), \
+             patch('physvfx_houdini.live_preview.start') as start, \
+             patch('physvfx_houdini.live_preview.stop') as stop:
+            node = create_node('render_view', network=Network('lop'))
+            self.assertFalse(node.parm('pv_continuous_preview').eval())
+            self.assertIn('set_continuous_preview', node.groups.find('pv_continuous_preview').scriptCallback())
+            node.parm('pv_continuous_preview').set(True)
+            set_continuous_preview(node)
+            start.assert_called_once_with(node)
+            node.parm('pv_continuous_preview').set(False)
+            set_continuous_preview(node)
+            stop.assert_called_once_with(node)
+
+    def test_refresh_adds_continuous_controls_to_existing_render_node(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('render_view', network=network)
+            node.groups.folders = [folder for folder in node.groups.folders
+                                   if not any(item._name == 'pv_continuous_preview'
+                                              for item in folder.kwargs['parm_templates'])]
+            node.values.pop('pv_continuous_preview')
+            node.values['pv_usd_path'].set('/existing/scene.usda')
+            hou.selectedNodes = lambda: [node]
+            refresh_selected_nodes()
+            self.assertEqual(node.parm('pv_usd_path').evalAsString(), '/existing/scene.usda')
+            self.assertFalse(node.parm('pv_continuous_preview').eval())
+            self.assertIn('set_continuous_preview', node.groups.find('pv_continuous_preview').scriptCallback())
+
     def test_wisp_spline_node_creates_distinct_guides(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):

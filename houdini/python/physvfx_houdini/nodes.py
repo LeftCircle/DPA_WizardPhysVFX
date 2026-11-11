@@ -51,7 +51,11 @@ def _template(hou, spec):
     if spec.kind == 'string':
         return hou.StringParmTemplate(name, spec.label, 1, default_value=(spec.default,), help=help_text)
     if spec.kind == 'toggle':
-        return hou.ToggleParmTemplate(name, spec.label, default_value=spec.default, help=help_text)
+        kwargs = {'default_value': spec.default, 'help': help_text}
+        if spec.name == 'continuous_preview':
+            kwargs.update(script_callback="import physvfx_houdini.nodes as n; n.set_continuous_preview(kwargs['node'])",
+                          script_callback_language=hou.scriptLanguage.Python)
+        return hou.ToggleParmTemplate(name, spec.label, **kwargs)
     if spec.kind == 'int':
         return hou.IntParmTemplate(name, spec.label, 1, default_value=(spec.default,), help=help_text)
     if spec.kind == 'int2':
@@ -76,6 +80,19 @@ def activate_sphere_radius_override(node):
     kind, override = node.parm('pv_kind'), node.parm('pv_override_radius')
     if kind is not None and override is not None and kind.evalAsString() == 'isf_sphere':
         override.set(True)
+
+
+def set_continuous_preview(node):
+    """Start or stop the interactive preview from the toggle callback."""
+    import hou
+    from . import live_preview
+    parm = node.parm('pv_continuous_preview')
+    if parm is not None and parm.eval():
+        if not hou.isUIAvailable():
+            raise hou.OperationFailed('Continuous Preview requires an interactive Houdini session.')
+        live_preview.start(node)
+    else:
+        live_preview.stop(node)
 
 
 def read_values(node, kind):
@@ -123,6 +140,12 @@ def cook(node, kind):
     import hou
     try:
         if kind == 'render_view':
+            # Recreate the in-memory session after loading a HIP with the
+            # toggle enabled. The first export occurs later on the UI loop.
+            parm = node.parm('pv_continuous_preview')
+            if parm is not None and parm.eval() and getattr(hou, 'isUIAvailable', lambda: False)():
+                from .live_preview import start
+                start(node)
             return  # pass the upstream stage through unchanged
         values = read_values(node, kind)
         if kind == 'wisp_spline':
@@ -409,6 +432,27 @@ def _cancel_previous_render(node):
         raise hou.OperationFailed(f'Could not stop the previous render: {exc}') from exc
 
 
+def _render_programs(values):
+    """Resolve the shared external renderer and watched image viewer."""
+    import os
+    from pathlib import Path
+    import hou
+    script = Path(values['render_script']).expanduser().resolve() if values['render_script'].strip() else Path(__file__).resolve().parents[3] / 'python' / 'usd_sphere_scene.py'
+    if not script.is_file():
+        raise hou.OperationFailed('Set Renderer Script to your repository python/usd_sphere_scene.py.')
+    repo = script.resolve().parent.parent
+    if values['viewer_path'].strip():
+        viewer = Path(values['viewer_path']).expanduser().resolve()
+    else:
+        candidates = [repo / 'build' / 'DPA_ImageProcessing' / 'dpa_imgviewer',
+                      repo / 'build' / 'DPA_ImageProcessing' / 'dpa_image_viewer',
+                      repo / 'build' / 'dpa_imgviewer', repo / 'build' / 'dpa_image_viewer']
+        viewer = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), candidates[0])
+    if not viewer.is_file() or not os.access(viewer, os.X_OK):
+        raise hou.OperationFailed(f'Image viewer not found or not executable: {viewer}. Build dpa_imgviewer or set Image Viewer.')
+    return _resolve_renderer_python(values['render_python']), script, repo, viewer
+
+
 def render_and_view(node):
     """Export this LOP's stage, then start the renderer and viewer in a worker."""
     import os
@@ -426,20 +470,7 @@ def render_and_view(node):
         raise hou.OperationFailed('USD Save Path must end in .usda.')
     if not image.suffix or usd == image:
         raise hou.OperationFailed('Choose a distinct Image Save Path with a file extension.')
-    script = Path(v['render_script']).expanduser().resolve() if v['render_script'].strip() else Path(__file__).resolve().parents[3] / 'python' / 'usd_sphere_scene.py'
-    if not script.is_file():
-        raise hou.OperationFailed('Set Renderer Script to your repository python/usd_sphere_scene.py.')
-    repo = script.resolve().parent.parent
-    if v['viewer_path'].strip():
-        viewer = Path(v['viewer_path']).expanduser().resolve()
-    else:
-        candidates = [repo / 'build' / 'DPA_ImageProcessing' / 'dpa_imgviewer',
-                      repo / 'build' / 'DPA_ImageProcessing' / 'dpa_image_viewer',
-                      repo / 'build' / 'dpa_imgviewer', repo / 'build' / 'dpa_image_viewer']
-        viewer = next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), candidates[0])
-    if not viewer.is_file() or not os.access(viewer, os.X_OK):
-        raise hou.OperationFailed(f'Image viewer not found or not executable: {viewer}. Build dpa_imgviewer or set Image Viewer.')
-    renderer_python = _resolve_renderer_python(v['render_python'])
+    renderer_python, script, repo, viewer = _render_programs(v)
     stage = node.stage()
     if stage is None:
         raise hou.OperationFailed('Connect the complete Solaris scene to this node.')

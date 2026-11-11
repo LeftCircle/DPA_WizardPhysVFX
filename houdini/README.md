@@ -431,13 +431,10 @@ watches one temporary preview file and refreshes automatically. The final image
 path is replaced only after the complete render succeeds. The preview file is
 removed after the viewer closes.
 
-Existing Render and View nodes need **Refresh PhysVFX Parameters** to expose
-this new toggle. Rebuild both the Python extension and `dpa_imgviewer` after
-updating; a custom viewer selected in **Image Viewer** must support `--watch`.
-This previews one saved scene: changes in Houdini require pressing Render and
-View again. Scene loading, field stamping and shadow-map creation happen before
-the first pass, so complex scenes may still take time to show the first image.
-Shadow-region caches can reduce repeated shadow-map work.
+For a manually started progressive render, scene loading, field stamping and
+shadow-map creation happen before the first pass, so complex scenes may still
+take time to show the first image. Shadow-region caches can reduce repeated
+shadow-map work. A custom **Image Viewer** must support `--watch`.
 
 Click **Render and View** again on the same node to stop its current render and
 viewer before starting a new render from the latest scene. If a render is
@@ -445,3 +442,35 @@ cancelled, the previous completed image stays on disk until the replacement
 finishes. Different Render and View nodes can still run concurrently; use
 different USD and image paths for those nodes. The node uses the USD loader's
 default time; this is not a frame-sequence renderer.
+
+### Continuous preview
+
+Enable **Continuous Preview** on the Render and View node to open an updating
+viewer without pressing the render button. After changes to scene parameters,
+connections or the current frame, the node exports a new temporary scene and
+replaces any in-progress preview. Rapid changes are combined using **Delay
+After Edit**. The viewer is reused for progressive updates and the last image
+stays visible while the next scene is prepared. If you close the viewer it will
+reopen when another preview image is available. Disable the toggle to stop the
+preview and close its viewer.
+
+The **Continuous Preview** tab offers quality and speed controls. **Resolution
+Scale** scales width and height independently (the default 0.25 renders 1/16 as
+many pixels); **Ray and Shadow Step Multiplier** increases sampling distances;
+**Grid Voxel Size Multiplier** coarsens grids; and **Wisp Dot Fraction** reduces
+the number of stamped dots. Wisp density is approximately adjusted to offset
+the lower dot count and coarser voxels, so preview brightness and fine detail
+may differ from the full render. Set these multipliers and fractions to 1 for
+full-quality sampling. A complex scene can still take time to rebuild its
+fields and shadow maps before the first pass.
+
+Continuous preview bypasses named stamp and shadow caches so edits are visible;
+it does not overwrite those caches, the node's saved USD, or its final image.
+The **Render and View** button still produces the usual full-quality output.
+The viewer and Python settings are shared with that button. As with the normal
+renderer, time-sampled USD data is read at the USD default time.
+
+After updating, restart Houdini and select an existing Render and View node,
+then click **Refresh PhysVFX Parameters** on the PhysVFX shelf. Its new controls
+appear in **PhysVFX Updates**; newly created nodes have a **Continuous Preview**
+tab. The installed viewer must support `--watch`.

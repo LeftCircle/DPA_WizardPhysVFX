@@ -166,6 +166,53 @@ class TranslationTests(unittest.TestCase):
         self.assertLess(scene.bounds_min[0], scene.center[0] - scene.radius)
         self.assertGreater(scene.bounds_max[0], scene.center[0] + scene.radius)
 
+    def test_live_quality_scales_render_settings_and_bypasses_shadow_cache(self):
+        module, _, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        initial = list(stage.Traverse())
+        region = Prim(None, '/region', {'pbvfx:shadowRegion': True, 'pbvfx:shadowCacheLoad': True,
+                                       'pbvfx:shadowCacheDir': '/unused'})
+        stage.Traverse = lambda: initial + [region]
+        quality = module.PreviewQuality(0.5, 3, 2, 0.25)
+        scene = module.load_scene('scene', preview=quality)
+        self.assertEqual((scene.settings.width, scene.settings.height), (100, 50))
+        self.assertAlmostEqual(scene.settings.min_step, 0.03)
+        self.assertAlmostEqual(scene.settings.max_step, 0.15)
+        self.assertAlmostEqual(scene.settings.density_voxel_size, 0.2)
+        self.assertFalse(scene.shadow_cache_specs[0]['load'])
+        self.assertTrue(module.load_scene('scene').shadow_cache_specs[0]['load'])
+        with self.assertRaises(ValueError):
+            module.PreviewQuality(0, 1, 1, 1)
+
+    def test_live_wisp_uses_fresh_cache_and_reduced_dot_count(self):
+        module, _, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = [p for p in stage.Traverse() if p.path != '/sphere']
+        prim = Prim(None, '/wisp', {'pbvfx:field_type': 'wisp', 'pbvfx:wispDots': 100,
+                                   'pbvfx:wispDensity': 2, 'pbvfx:cacheName': 'old',
+                                   'pbvfx:stampVoxelSize': 0.1})
+        stage.Traverse = lambda: original + [prim]
+        calls = []
+        class Grid:
+            def __init__(self, voxel, background): self.voxel_size = voxel
+            def active_world_bounds(self): return ((-1,-1,-1), (1,1,1))
+        class Wisp:
+            def __init__(self, *args): calls.append(args)
+            def stamp(self, grid): pass
+        module.fx.FloatGrid = Grid
+        module.fx.wisp_uniform = Wisp
+        module.fx.FSVals = lambda *args: args
+        module.fx.CoordinateSys = lambda: 'axes'
+        module.fx.make_grid_field = lambda grid: ('grid', grid)
+        module.fx.load_float_grid = lambda path: self.fail('live preview loaded a stamp cache')
+        module.fx.save_to_disk = lambda *args: self.fail('live preview wrote a stamp cache')
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'old.vdb').write_text('old cache')
+            module.load_scene('scene', cache_dir=tmp, preview=module.PreviewQuality(.5, 2, 2, .25))
+            self.assertEqual((Path(tmp) / 'old.vdb').read_text(), 'old cache')
+        self.assertEqual(calls[0][0], 25)
+        self.assertAlmostEqual(calls[0][1], -1.0)
+
     def test_rejects_unsupported_transforms_and_aspect(self):
         module, sphere, camera, _, settings, _ = fixture()
         sphere.matrix = Matrix(scale=(1, 0, 1))
@@ -422,6 +469,13 @@ class TranslationTests(unittest.TestCase):
             cached = module.load_scene('scene', cache_dir=tmp)
             self.assertEqual(len(calls), stamps)
             self.assertTrue(cached.objects[0].cache_hit)
+            preview = module.PreviewQuality(.25, 4, 2, .2)
+            live = module.load_scene('scene', cache_dir=tmp, preview=preview)
+            self.assertFalse(live.objects[0].cache_hit)
+            self.assertEqual(calls[-1][1:], (10, 0.4, 7))
+            self.assertAlmostEqual(calls[-1][0][0][1], -0.625)
+            self.assertAlmostEqual(calls[-1][0][1][1], -1.25)
+            self.assertEqual((Path(tmp) / 'spline_test.vdb').read_text(), 'grid')
         attrs['pbvfx:spline_density'] = [1]
         with self.assertRaisesRegex(ValueError, 'one value per position'):
             module.load_scene('scene')

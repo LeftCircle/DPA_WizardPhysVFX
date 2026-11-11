@@ -168,16 +168,38 @@ class TranslationTests(unittest.TestCase):
 
     def test_rejects_unsupported_transforms_and_aspect(self):
         module, sphere, camera, _, settings, _ = fixture()
-        sphere.matrix = Matrix(scale=(1, 2, 1))
-        with self.assertRaisesRegex(ValueError, 'non-uniform'): module.load_scene('scene')
-        sphere.matrix = Matrix(shear=0.5)
-        with self.assertRaisesRegex(ValueError, 'shear'): module.load_scene('scene')
+        sphere.matrix = Matrix(scale=(1, 0, 1))
+        with self.assertRaisesRegex(ValueError, 'singular'): module.load_scene('scene')
         sphere.matrix = Matrix()
         settings.values['Resolution'] = (100, 100)
         with self.assertRaisesRegex(ValueError, 'aspect ratios'): module.load_scene('scene')
         settings.values['Resolution'] = (200, 100)
         camera.values['Projection'] = 'orthographic'
         with self.assertRaisesRegex(ValueError, 'perspective'): module.load_scene('scene')
+
+    def test_nonuniform_sphere_uses_inverse_transform_and_bounded_ellipsoid(self):
+        module, sphere, _, _, _, _ = fixture()
+        sphere.matrix = Matrix(translation=(4, 2, -1), scale=(2, 4, 1))
+        scene = module.load_scene('scene')
+        item = scene.objects[0]
+        self.assertEqual(item.bounds_min, (0, -3, -1.5))
+        self.assertEqual(item.bounds_max, (4, 5, 0.5))
+        self.assertIsNone(item.radius)
+        self.assertEqual(scene.sdf[0], 'transformed')
+        self.assertEqual(scene.sdf[1], ('sphere', (0, 0, 0), 2))
+        self.assertEqual(scene.sdf[2], (-2, -0.5, 1))
+        self.assertEqual(scene.sdf[3:], ((1, 0, 0), (0, 0.5, 0), (0, 0, 2)))
+
+    def test_sheared_sphere_uses_affine_inverse(self):
+        module, sphere, _, _, _, _ = fixture()
+        class Shear(Matrix):
+            def Transform(self, v): return (v[0] + self.shear * v[1], v[1], v[2])
+            def GetInverse(self): return Shear(shear=-self.shear)
+        sphere.matrix = Shear(shear=0.5)
+        scene = module.load_scene('scene')
+        self.assertEqual(scene.objects[0].bounds_min, (-1.5, -1, -1))
+        self.assertEqual(scene.objects[0].bounds_max, (1.5, 1, 1))
+        self.assertEqual(scene.sdf[4], (-1, 2, 0))
 
     def test_rotated_camera_basis(self):
         module, _, camera, _, _, _ = fixture()

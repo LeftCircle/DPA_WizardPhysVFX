@@ -260,6 +260,8 @@ def _world_to_local(field, matrix, scale, path):
     for axis in ((1, 0, 0), (0, 1, 0), (0, 0, 1)):
         p = _vec(inverse.Transform(Gf.Vec3d(*(x / scale for x in axis))))
         axes.append(tuple(p[i] - origin[i] for i in range(3)))
+    if not all(math.isfinite(x) for vec in (origin, *axes) for x in vec):
+        raise ValueError(f'{path}: singular or non-finite transform')
     return fx.affine_transform_field(field, _fxvec(origin), *(_fxvec(x) for x in axes))
 
 
@@ -296,12 +298,20 @@ def get_isf_object(prim, cache, unit_scale):
     if kind == 'isf_sphere':
         if prim.IsA(UsdGeom.Sphere) and not prim.GetAttribute('pbvfx:radius'):
             radius = _positive(UsdGeom.Sphere(prim).GetRadiusAttr().Get(), 'sphere radius')
-        _, lengths = _basis(matrix, prim.GetPath(), uniform=True)
-        center = _vec(matrix.ExtractTranslation(), unit_scale)
-        radius_world = radius * lengths[0] * unit_scale
-        field = fx.isf_sphere(_fxvec(center), radius_world)
-        bounds_min = tuple(v - radius_world for v in center)
-        bounds_max = tuple(v + radius_world for v in center)
+        try:
+            _, lengths = _basis(matrix, prim.GetPath(), uniform=True)
+        except ValueError:
+            # Arbitrary invertible affine transforms have the same semantics as
+            # the other implicit fields: evaluate the local sphere at M^-1 P.
+            # Such a field is not an exact world-space signed distance field.
+            field = _world_to_local(fx.isf_sphere(origin, radius), matrix, unit_scale, prim.GetPath())
+            bounds_min, bounds_max = _transformed_bounds(matrix, radius, unit_scale)
+        else:
+            center = _vec(matrix.ExtractTranslation(), unit_scale)
+            radius_world = radius * lengths[0] * unit_scale
+            field = fx.isf_sphere(_fxvec(center), radius_world)
+            bounds_min = tuple(v - radius_world for v in center)
+            bounds_max = tuple(v + radius_world for v in center)
     else:
         if kind == 'isf_torus':
             field = fx.isf_torus(origin, major, minor, normal)

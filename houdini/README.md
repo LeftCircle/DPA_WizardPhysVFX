@@ -168,7 +168,9 @@ the exception: an empty name is explicitly authored to disable an upstream key.
   the camera prim, so use unit camera scale for the guide to match the renderer,
   which ignores camera scale. **Show Camera Range** hides the guide; existing
   camera nodes use the default after restart but need recreation for the toggle.
-- Sphere transforms must be uniform and shear-free. USD stage `metersPerUnit`
+- Spheres support non-uniform scale and other invertible affine transforms;
+  their transformed fields are not necessarily exact world-space distances.
+  USD stage `metersPerUnit`
   is respected by the renderer. Length parameters and authored bounds are in
   stage units, except voxel half-width (in voxels) and other dimensionless
   settings. Camera focal length and aperture follow their usual USD camera

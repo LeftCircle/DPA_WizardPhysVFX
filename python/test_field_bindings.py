@@ -40,6 +40,13 @@ class FieldBindingsTests(unittest.TestCase):
             fx.Vector(1, 0, 0), fx.Vector(0, 1, 0), fx.Vector(0, 0, 1))
         self.assertLess(moved.eval(fx.Vector(3, 0, 0)), 0)
         self.assertGreater(moved.eval(self.origin), 0)
+        stretched = fx.affine_transform_field(sphere, fx.Vector(0, 0, 0),
+            fx.Vector(0.5, 0, 0), fx.Vector(0, 1, 0), fx.Vector(0, 0, 2))
+        self.assertAlmostEqual(stretched.eval(fx.Vector(2, 0, 0)), 0, places=5)
+        self.assertAlmostEqual(stretched.eval(fx.Vector(0, 1, 0)), 0, places=5)
+        self.assertAlmostEqual(stretched.eval(fx.Vector(0, 0, 0.5)), 0, places=5)
+        self.assertLess(stretched.eval(self.origin), 0)
+        self.assertGreater(stretched.eval(fx.Vector(3, 0, 0)), 0)
         other = fx.isf_sphere(fx.Vector(-3, 0, 0), 1)
         colors = fx.make_scene_color_field([moved, other], [fx.Color(1, 0, 0), fx.Color(0, 1, 0)])
         red, green = colors.eval(fx.Vector(3, 0, 0)), colors.eval(fx.Vector(-3, 0, 0))

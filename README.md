@@ -115,7 +115,7 @@ they are not automatically rescaled when changing renderer units.
 Grid bounds are derived from the sphere instead of `model_halfsize`;
 `cam_dist` is replaced by the camera's authored world transform.
 
-The sphere's transform must have uniform scale and no shear; the camera must
+Sphere transforms may use any invertible affine transform; the camera must
 be perspective with zero aperture offsets, square pixels and matching aperture
 and output aspect ratios. One render settings prim is required. Each USD sphere
 light is approximated as a point: its RGB contribution is
@@ -270,8 +270,7 @@ geometry prim must be a USD `Mesh` and is voxelized using the density voxel
 size. Tagged meshes are interpreted as their ISF instead. Untagged non-mesh
 geometry and unknown ISF tags raise an error.
 
-Fields use local coordinates and the composed USD world transform. Tagged
-spheres currently require a uniform, shear-free world scale. Other ISFs
+Fields use local coordinates and the composed USD world transform. ISFs
 preserve their zero surface and inside/outside sign under affine transforms;
 these fields and their union are not necessarily exact world-space distance
 fields. ISF parameters can be authored using `pbvfx:radius`, `majorRadius`,

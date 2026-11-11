@@ -5,6 +5,48 @@ PREVIEW_CHILD = '__physvfx_bounds'
 SURFACE_CHILD = '__physvfx_surface'
 CAMERA_CHILD = '__physvfx_camera_range'
 PLANE_CHILD = '__physvfx_plane_grid'
+SPLINE_CHILD = '__physvfx_spline_guide'
+
+
+def author_wisp_spline_preview(stage, prim, positions, values, line_positions=None):
+    """Draw local guide segments and a three-axis marker at each guide."""
+    from pxr import Gf, Sdf, UsdGeom
+    path = str(prim.GetPath()) + '/' + SPLINE_CHILD
+    proxy = stage.GetPrimAtPath(path)
+    if proxy:
+        marker = proxy.GetAttribute('pbvfx:preview')
+        if not marker or marker.Get() is not True or not proxy.IsA(UsdGeom.BasisCurves):
+            raise ValueError(f'{path}: reserved preview path is already in use')
+    if not values.get('show_preview', True):
+        if proxy:
+            UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
+        return
+    if not proxy:
+        proxy = stage.DefinePrim(path, 'BasisCurves')
+    if not proxy:
+        raise ValueError(f'{path}: could not create spline preview')
+    proxy.CreateAttribute('pbvfx:preview', Sdf.ValueTypeNames.Bool, custom=True).Set(True)
+    size = float(values.get('guide_size', 0.12))
+    line_positions = positions if line_positions is None else line_positions
+    lines = list(zip(line_positions, line_positions[1:]))
+    for point in positions:
+        for axis in range(3):
+            a, b = list(point), list(point)
+            a[axis] -= size; b[axis] += size
+            lines.append((a, b))
+    points = [p for line in lines for p in line]
+    width = max(size * 0.1, 0.002)
+    geom = UsdGeom.BasisCurves(proxy)
+    geom.CreateTypeAttr().Set(UsdGeom.Tokens.linear)
+    geom.CreateCurveVertexCountsAttr().Set([2] * len(lines))
+    geom.CreatePointsAttr().Set([Gf.Vec3f(*p) for p in points])
+    geom.CreateWidthsAttr().Set([width])
+    geom.SetWidthsInterpolation(UsdGeom.Tokens.constant)
+    geom.CreateExtentAttr().Set([Gf.Vec3f(*(min(p[i] for p in points)-width for i in range(3))),
+                                 Gf.Vec3f(*(max(p[i] for p in points)+width for i in range(3)))])
+    UsdGeom.PrimvarsAPI(proxy).CreatePrimvar('displayColor', Sdf.ValueTypeNames.Color3fArray,
+                                            UsdGeom.Tokens.constant).Set([Gf.Vec3f(0.2, 0.8, 1.0)])
+    UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)
 
 
 def plane_grid_lines(normal, size, divisions=10):

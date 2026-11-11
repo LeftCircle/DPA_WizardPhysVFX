@@ -205,6 +205,7 @@ public:
     );
 
     vspf stamp_wisp_spline();
+    openvdb::FloatGrid::Ptr stamp_wisp_spline_grid();
 
 private:
     template <typename RNGFunc>
@@ -225,7 +226,8 @@ private:
         auto d = Vector(fspn<float>(params.fspn2, p3), fspn<float, Vector>(params.fspn2, p3 + params.displacement), fspn<float>(params.fspn2, p3 - params.displacement));
         auto p5 = p4 + d;
         // Now bake the value into the grid
-        trilinear_deposit(accessor, transform, {p5[0], p5[1], p5[2]}, params.dens);
+        trilinear_deposit(accessor, transform,
+            openvdb::Vec3s(static_cast<float>(p5[0]), static_cast<float>(p5[1]), static_cast<float>(p5[2])), params.dens);
     }
     std::pair<int, float> _locate_segment(float t);
 
@@ -235,6 +237,7 @@ private:
     float _voxel_size;
     int _seed;
     float _spline_length;
+    std::vector<float> _cumulative_lengths;
 };
 
 

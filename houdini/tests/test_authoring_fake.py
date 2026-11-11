@@ -87,7 +87,7 @@ class PrimvarsAPI:
 def fake_pxr():
     pxr = types.ModuleType('pxr')
     names = types.SimpleNamespace(**{x: x for x in
-        ('Float', 'Float3', 'Point3f', 'Color3f', 'Color3fArray', 'Int', 'Bool', 'String', 'Token')})
+        ('Float', 'Float3', 'Point3f', 'FloatArray', 'Float3Array', 'Point3fArray', 'Color3f', 'Color3fArray', 'Int', 'Bool', 'String', 'Token')})
     pxr.Sdf = types.SimpleNamespace(Path=Path, ValueTypeNames=names)
     pxr.Gf = types.SimpleNamespace(Vec3f=lambda *x: tuple(x), Vec3d=lambda *x: tuple(x), Vec2f=lambda *x: tuple(x), Vec2i=lambda *x: tuple(x))
     pxr.Usd = types.SimpleNamespace(TimeCode=types.SimpleNamespace(Default=lambda: None))
@@ -119,6 +119,59 @@ class AuthoringContractTests(unittest.TestCase):
         for kind in ('field', 'operation', 'camera', 'light', 'settings'):
             names = [p.name for p in parameters(kind)]
             self.assertEqual(len(names), len(set(names)), kind)
+
+    def test_wisp_spline_ramps_are_sampled_and_guide_is_excluded(self):
+        from physvfx_houdini.spline_channels import default_guides
+        v = defaults('wisp_spline'); v['guides'] = default_guides()
+        v['ramp_subdivisions'] = 4
+        v['splineMin_density'], v['splineMax_density'] = 1, 5
+        v['splineRamp_density'] = types.SimpleNamespace(lookup=lambda t: t*t)
+        prim = author(self.stage, 'wisp_spline', v)
+        self.assertEqual(prim.attrs['pbvfx:field_type'].value, 'wisp_spline')
+        self.assertEqual(len(prim.attrs['pbvfx:splinePositions'].value), 5)
+        self.assertAlmostEqual(prim.attrs['pbvfx:spline_density'].value[2], 2)
+        guide = self.stage.GetPrimAtPath('/World/WispSpline/__physvfx_spline_guide')
+        self.assertTrue(guide.attrs['pbvfx:preview'].value)
+        self.assertEqual(len(guide.attrs['Points'].value), 20)
+        v['show_preview'] = False
+        author(self.stage, 'wisp_spline', v)
+        self.assertEqual(guide.attrs['Visibility'].value, 'invisible')
+
+    def test_wisp_spline_manual_guides_and_degenerate_validation(self):
+        from physvfx_houdini.spline_channels import default_guides
+        v = defaults('wisp_spline'); v.update(guides=default_guides(), mode='manual')
+        v['guides'][1]['density'] = 4
+        prim = author(self.stage, 'wisp_spline', v)
+        self.assertEqual(prim.attrs['pbvfx:spline_density'].value, [1.0, 4.0])
+        v['guides'][1]['position'] = v['guides'][0]['position']
+        with self.assertRaisesRegex(AuthoringError, 'distinct'):
+            author(self.stage, 'wisp_spline', v)
+
+    def test_spline_ramps_use_arc_length_and_clamp(self):
+        from physvfx_houdini.spline_channels import default_guides, resolve_guides
+        v = defaults('wisp_spline'); v['guides'] = default_guides()
+        v['guides'][1]['position'] = (0, 1, 0)
+        end = dict(v['guides'][1]); end['position'] = (0, 4, 0)
+        v['guides'].append(end)
+        v.update(ramp_subdivisions=2, splineMin_density=0, splineMax_density=4)
+        v['splineRamp_density'] = types.SimpleNamespace(lookup=lambda t: t)
+        _, samples = resolve_guides(v)
+        self.assertEqual([s['density'] for s in samples], [0, 0.5, 1, 2.5, 4])
+        v['splineRamp_density'] = types.SimpleNamespace(lookup=lambda t: 2*t - 0.5)
+        _, samples = resolve_guides(v)
+        self.assertEqual(samples[0]['density'], 0)
+        self.assertEqual(samples[-1]['density'], 4)
+
+    def test_spline_position_ramp_moves_path_and_markers(self):
+        from physvfx_houdini.spline_channels import default_guides
+        v = defaults('wisp_spline'); v['guides'] = default_guides()
+        v['ramp_subdivisions'] = 2
+        v['splineMax_positionOffset'] = (2, 0, 0)
+        v['splineRamp_positionOffset'] = types.SimpleNamespace(lookup=lambda t: t)
+        prim = author(self.stage, 'wisp_spline', v)
+        self.assertEqual(prim.attrs['pbvfx:splinePositions'].value[-1], (2, 2, 0))
+        guide = self.stage.GetPrimAtPath('/World/WispSpline/__physvfx_spline_guide')
+        self.assertEqual(tuple(guide.attrs['Points'].value[3]), (2, 2, 0))
 
     def test_each_field_kind_authors_correct_tags_and_options(self):
         for kind, _ in FIELD_KINDS:

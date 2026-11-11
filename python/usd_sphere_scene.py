@@ -535,6 +535,73 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
                        bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit)
 
 
+def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None):
+    """Stamp resolved local-space guide data to a density grid, or load its cache."""
+    path = str(prim.GetPath())
+    dots = int(_custom(prim, 'splineDots', 0))
+    seed = int(_custom(prim, 'splineSeed', 1))
+    if not 1 <= dots <= 2147483647 or not -2147483648 <= seed <= 2147483647:
+        raise ValueError(f'{path}: invalid spline dot count or seed')
+    positions = _custom(prim, 'splinePositions', None)
+    if positions is None or len(positions) < 2:
+        raise ValueError(f'{path}: wisp spline needs at least two positions')
+    positions = [_vec(p) for p in positions]
+    for a, b in zip(positions, positions[1:]):
+        if _length(tuple(x-y for x, y in zip(a, b))) <= 1e-10:
+            raise ValueError(f'{path}: neighboring spline positions must be distinct')
+    scalar_names = ('density', 'clump', 'pscale', 'noise1Roughness', 'noise1Octaves',
+                    'noise1Frequency', 'noise1FrequencyJump', 'noise2Roughness',
+                    'noise2Octaves', 'noise2Frequency', 'noise2FrequencyJump')
+    vector_names = ('displacement', 'axisT', 'axisN', 'axisB', 'noise1Translation', 'noise2Translation')
+    channels = {}
+    for name in scalar_names + vector_names:
+        arr = _custom(prim, 'spline_' + name, None)
+        if arr is None or len(arr) != len(positions):
+            raise ValueError(f'{path}: spline_{name} must have one value per position')
+        if name in vector_names:
+            channels[name] = [_vec(v) for v in arr]
+            if name.startswith('axis') and any(_length(v) <= 1e-10 for v in channels[name]):
+                raise ValueError(f'{path}: spline_{name} must be nonzero')
+        else:
+            channels[name] = [_positive(v, 'pbvfx:spline_' + name,
+                                        allow_zero=(name == 'density' or name.endswith('Roughness'))) for v in arr]
+    voxel = _object_voxel_size(prim, settings, unit_scale) / unit_scale
+    grid = stamp_cache.load(prim) if stamp_cache else None
+    hit = grid is not None
+    if not hit:
+        guides = []
+        for i, pos in enumerate(positions):
+            def noise(prefix):
+                return fx.FSVals(channels[prefix+'Roughness'][i], channels[prefix+'Octaves'][i],
+                                 _fxvec(channels[prefix+'Translation'][i]), channels[prefix+'Frequency'][i],
+                                 channels[prefix+'FrequencyJump'][i])
+            axis = fx.CoordinateSys()
+            axis.t, axis.n, axis.b = (_fxvec(channels[key][i]) for key in ('axisT', 'axisN', 'axisB'))
+            guides.append(fx.WispGuideParticle(1, -channels['density'][i], channels['clump'][i],
+                          channels['pscale'][i], noise('noise1'), noise('noise2'),
+                          _fxvec(channels['displacement'][i]), _fxvec(pos), axis, i))
+        with _timed(f'Stamp wisp spline {path} ({dots} dots)'):
+            grid = fx.WispSpline(guides, dots, voxel, seed).stamp_grid()
+        if stamp_cache:
+            stamp_cache.save(prim, grid)
+    else:
+        voxel = grid.voxel_size
+    bounds = grid.active_world_bounds()
+    if bounds is None:
+        raise ValueError(f'{path}: wisp spline generated an empty grid')
+    lo, hi = bounds
+    matrix = cache.GetLocalToWorldTransform(prim)
+    corners = [_vec(matrix.Transform(Gf.Vec3d(x, y, z)), unit_scale)
+               for x in (lo[0]-voxel, hi[0]+voxel) for y in (lo[1]-voxel, hi[1]+voxel)
+               for z in (lo[2]-voxel, hi[2]+voxel)]
+    bounds_min = tuple(min(p[i] for p in corners) for i in range(3))
+    bounds_max = tuple(max(p[i] for p in corners) for i in range(3))
+    field = _world_to_local(fx.make_grid_field(grid), matrix, unit_scale, prim.GetPath())
+    rgb = _display_color(prim)
+    return SceneObject(path, 'wisp_spline', field, fx.Color(*rgb, 0), rgb,
+                       bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit)
+
+
 def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_scale=1.0):
     """Optionally sample an object field into its own world-space grid."""
     stamp = _custom(prim, 'stamp', False)
@@ -672,7 +739,7 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
     objects = {}
     # Reject ambiguous names before creating any cache files.
     for prim in prims:
-        if (_custom(prim, 'field_type', None) == 'wisp' or
+        if (_custom(prim, 'field_type', None) in ('wisp', 'wisp_spline') or
             prim.IsA(UsdGeom.Mesh) or _custom(prim, 'stamp', False) is True):
             stamp_cache.path_for(prim)
     for prim in prims:
@@ -682,12 +749,14 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
             operations[path] = (prim, str(op))
             continue
         field_type = _custom(prim, 'field_type', None)
-        if field_type is not None and field_type not in ('wisp', 'plane', 'infinite_plane'):
+        if field_type is not None and field_type not in ('wisp', 'wisp_spline', 'plane', 'infinite_plane'):
             raise ValueError(f'{path}: unknown pbvfx:field_type {field_type!r}')
         if field_type and _custom(prim, 'isf_type', None) is not None:
             raise ValueError(f'{path}: choose either pbvfx:field_type or pbvfx:isf_type')
         if field_type == 'wisp':
             item = get_wisp_object(prim, cache, settings, scale, stamp_cache)
+        elif field_type == 'wisp_spline':
+            item = get_wisp_spline_object(prim, cache, settings, scale, stamp_cache)
         elif field_type == 'plane':
             item = get_plane_object(prim, cache, scale)
         elif field_type == 'infinite_plane':

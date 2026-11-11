@@ -28,6 +28,7 @@ class Template:
     def setScriptCallbackLanguage(self, language): self.kwargs['script_callback_language'] = language
     def isHidden(self): return self.kwargs.get('hidden', False)
     def hide(self, hidden): self.kwargs['hidden'] = hidden
+    def setDefaultValue(self, value): self.kwargs['multiparm_default'] = value
 
 
 class Folder(Template):
@@ -55,6 +56,7 @@ class Parm:
 class ParmTuple:
     def __init__(self, value): self.value = value
     def eval(self): return self.value
+    def set(self, value): self.value = value
 
 
 class Node:
@@ -72,6 +74,18 @@ class Node:
         self.groups = group
         for folder in group.folders:
             for spec in folder.kwargs['parm_templates']:
+                if spec.kwargs.get('folder_type') == 'multiparm':
+                    count = spec.kwargs.get('multiparm_default', 0)
+                    self.values.setdefault(spec._name, Parm(count))
+                    for i in range(1, count + 1):
+                        for item in spec.kwargs['parm_templates']:
+                            name = item._name.replace('#', str(i))
+                            default = item.kwargs['default_value']
+                            if len(default) > 1:
+                                self.tuples.setdefault(name, ParmTuple(default))
+                            else:
+                                self.values.setdefault(name, Parm(default[0]))
+                    continue
                 if spec.kwargs.get('look') == 'color' and spec.kwargs.get('naming_scheme') != 'rgba':
                     raise RuntimeError('ColorSquares must use an RGBA naming scheme')
                 default = spec.kwargs.get('default_value')
@@ -110,13 +124,35 @@ def make_hou():
     hou.scriptLanguage = types.SimpleNamespace(Python='python')
     hou.parmLook = types.SimpleNamespace(ColorSquare='color')
     hou.parmNamingScheme = types.SimpleNamespace(RGBA='rgba')
+    hou.folderType = types.SimpleNamespace(MultiparmBlock='multiparm')
+    hou.rampParmType = types.SimpleNamespace(Float='float')
+    hou.rampBasis = types.SimpleNamespace(Linear='linear')
+    hou.Ramp = lambda basis, keys, vals: types.SimpleNamespace(lookup=lambda t: vals[0] + (vals[-1] - vals[0]) * t)
     for name in ('StringParmTemplate', 'IntParmTemplate', 'ToggleParmTemplate', 'FloatParmTemplate', 'ButtonParmTemplate'):
         setattr(hou, name, Template)
     hou.FolderParmTemplate = Folder
+    hou.RampParmTemplate = Template
     return hou
 
 
 class NodeConstructionTests(unittest.TestCase):
+    def test_wisp_spline_node_creates_distinct_guides(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('wisp_spline', network=network)
+            values = read_values(node, 'wisp_spline')
+            self.assertEqual(len(values['guides']), 2)
+            self.assertEqual(values['guides'][0]['position'], (0, 0, 0))
+            self.assertEqual(values['guides'][1]['position'], (0, 2, 0))
+            node.values['pv_splineMin_density'].set(1)
+            node.values['pv_splineMax_density'].set(3)
+            stage = Stage()
+            node.editableStage = lambda: stage
+            with patch.dict(sys.modules, {'pxr': fake_pxr()}):
+                cook(node, 'wisp_spline')
+            prim = stage.GetPrimAtPath('/World/WispSpline')
+            self.assertEqual(prim.attrs['pbvfx:spline_density'].value[4], 2)
+            self.assertTrue(stage.GetPrimAtPath('/World/WispSpline/__physvfx_spline_guide'))
     def test_editing_sphere_radius_enables_override(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):
@@ -452,7 +488,7 @@ class NodeConstructionTests(unittest.TestCase):
         refs = {node.attrib['name'] for node in root.findall('./toolshelf/memberTool')}
         tools = {node.attrib['name'] for node in root.findall('./tool')}
         self.assertEqual(refs, tools)
-        self.assertEqual(len(tools), 9)
+        self.assertEqual(len(tools), 10)
         for script in root.findall('./tool/script'):
             self.assertTrue('physvfx_houdini.create_node(' in script.text or
                             'physvfx_houdini.refresh_selected_nodes()' in script.text)

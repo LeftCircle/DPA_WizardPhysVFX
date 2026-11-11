@@ -19,6 +19,22 @@ except ImportError:
 
 @unittest.skipUnless(HAS_FX, 'requires the built physics_vfx module')
 class WispBindingTests(unittest.TestCase):
+    def test_spline_binding_stamps_and_is_seeded(self):
+        noise = fx.FSVals(0.5, 2, fx.Vector(0, 0, 0), 1, 2)
+        axis = fx.CoordinateSys()
+        guides = [fx.WispGuideParticle(1, -1, 1, 1, noise, noise, fx.Vector(1,1,1),
+                                       fx.Vector(0,y,0), axis, i) for i,y in enumerate((0,4))]
+        spline = fx.WispSpline(guides, 300, 0.25, 7)
+        first, second = spline.stamp_grid(), spline.stamp_grid()
+        self.assertIsNotNone(first.active_world_bounds())
+        self.assertEqual(first.active_world_bounds(), second.active_world_bounds())
+        values = [first.get_value(x,y,z) for x in range(-8,9) for y in range(-8,25) for z in range(-8,9)]
+        self.assertLess(min(values), 0)
+        self.assertEqual(values, [second.get_value(x,y,z) for x in range(-8,9) for y in range(-8,25) for z in range(-8,9)])
+        self.assertTrue(hasattr(spline.stamp_wisp_spline(), 'eval'))
+        with self.assertRaises(ValueError):
+            fx.WispSpline(guides[:1], 10, 0.25, 1)
+
     def test_seeded_deposits_and_bounds(self):
         noise = fx.FSVals(0.5, 2, fx.Vector(0, 0, 0), 1, 2)
         def create(seed):

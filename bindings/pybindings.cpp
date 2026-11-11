@@ -260,6 +260,20 @@ PYBIND11_MODULE(physics_vfx, module)
         }, py::arg("grid"));
     module.attr("wisp_uniform") = module.attr("UniformWisp");
 
+    py::class_<WispGuideParticle>(module, "WispGuideParticle")
+        .def(py::init<size_t, float, float, float, FSVals, FSVals, Vector, Vector, CoordinateSys, int>(),
+             py::arg("n_dots"), py::arg("density"), py::arg("clump"), py::arg("pscale"),
+             py::arg("noise1"), py::arg("noise2"), py::arg("displacement"),
+             py::arg("location"), py::arg("axis"), py::arg("id"));
+    py::class_<WispSpline>(module, "WispSpline")
+        .def(py::init<const std::vector<WispGuideParticle>&, size_t, float, int>(),
+             py::arg("guides"), py::arg("n_dots"), py::arg("voxel_size"), py::arg("seed"))
+        .def("stamp_wisp_spline", &WispSpline::stamp_wisp_spline,
+             py::call_guard<py::gil_scoped_release>())
+        .def("stamp_grid", [](WispSpline& spline) {
+            return FloatGridHandle{spline.stamp_wisp_spline_grid()};
+        }, py::call_guard<py::gil_scoped_release>());
+
     py::class_<ColorGridHandle>(module, "ColorGrid")
         .def(py::init([](float voxel_size) {
             if (!std::isfinite(voxel_size) || voxel_size <= 0) throw py::value_error("voxel_size must be positive");

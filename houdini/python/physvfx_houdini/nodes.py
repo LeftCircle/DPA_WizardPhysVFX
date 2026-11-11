@@ -1,6 +1,7 @@
 """Create Solaris Python LOPs and evaluate their user-facing parameters."""
 from .schema import PARAMETERS, parameters
 from .author import AuthoringError, author
+from .spline_channels import CHANNELS, resolve_guides
 
 
 # Running background render workers keyed by their Houdini node path.
@@ -11,6 +12,7 @@ NODE_LABELS = {
     'shadow_cache': 'PhysVFX Shadow Cache',
     'shadow_region': 'PhysVFX Shadow Region',
     'field': 'PhysVFX Field',
+    'wisp_spline': 'PhysVFX Wisp Spline',
     'operation': 'PhysVFX Operation',
     'camera': 'PhysVFX Camera',
     'light': 'PhysVFX Light',
@@ -26,6 +28,22 @@ def _template(hou, spec):
         return hou.ButtonParmTemplate(name, spec.label, help=help_text,
             script_callback="import physvfx_houdini.nodes as n; n.%s(kwargs['node'])" % callback,
             script_callback_language=hou.scriptLanguage.Python)
+    if spec.kind == 'ramp':
+        return hou.RampParmTemplate(name, spec.label, hou.rampParmType.Float, help=help_text)
+    if spec.kind == 'guides':
+        parts = [hou.FloatParmTemplate('pv_guide_position#', 'Position', 3,
+                                       default_value=(0.0, 0.0, 0.0),
+                                       help='Local-space guide position.')]
+        for channel, label, channel_kind, default in CHANNELS:
+            size = 3 if channel_kind == 'vector' else 1
+            defaults = default if size == 3 else (default,)
+            parts.append(hou.FloatParmTemplate('pv_guide_' + channel + '#', label, size,
+                                               default_value=defaults,
+                                               help='Used in Per Guide mode.'))
+        folder = hou.FolderParmTemplate(name, spec.label, parm_templates=tuple(parts),
+                                       folder_type=hou.folderType.MultiparmBlock)
+        folder.setDefaultValue(2)
+        return folder
     if spec.kind == 'menu':
         return hou.StringParmTemplate(name, spec.label, 1, default_value=(spec.default,),
             menu_items=tuple(item[0] for item in spec.choices),
@@ -65,6 +83,22 @@ def read_values(node, kind):
     values = {}
     for spec in parameters(kind):
         name = 'pv_' + spec.name
+        if spec.kind == 'guides':
+            count_parm = node.parm(name)
+            count = int(count_parm.eval()) if count_parm is not None else 0
+            guides = []
+            for index in range(1, count + 1):
+                point = node.parmTuple('pv_guide_position' + str(index))
+                if point is None:
+                    raise AuthoringError('Missing wisp spline guide position parameter')
+                guide = {'position': tuple(point.eval())}
+                for channel, _, channel_kind, default in CHANNELS:
+                    parm_name = 'pv_guide_' + channel + str(index)
+                    parm = node.parmTuple(parm_name) if channel_kind == 'vector' else node.parm(parm_name)
+                    guide[channel] = (tuple(parm.eval()) if channel_kind == 'vector' else parm.eval()) if parm is not None else default
+                guides.append(guide)
+            values[spec.name] = guides
+            continue
         if spec.kind == 'button':
             values[spec.name] = None
             continue
@@ -91,6 +125,11 @@ def cook(node, kind):
         if kind == 'render_view':
             return  # pass the upstream stage through unchanged
         values = read_values(node, kind)
+        if kind == 'wisp_spline':
+            try:
+                values['guide_positions'], values['spline_samples'] = resolve_guides(values)
+            except (KeyError, ValueError, TypeError) as exc:
+                raise AuthoringError(str(exc)) from exc
         stage = node.editableStage()
         if stage is None:
             raise AuthoringError('This tool requires an editable Solaris stage')
@@ -133,6 +172,17 @@ def create_node(kind, network=None, source=None):
                 parm_templates=tuple(_template(hou, spec) for spec in specs))
             group.append(folder)
         node.setParmTemplateGroup(group)
+        if kind == 'wisp_spline':
+            # Multiparm instances share a template default; give the second
+            # guide a distinct position on initial node creation.
+            second = node.parmTuple('pv_guide_position2')
+            if second is not None:
+                second.set((0.0, 2.0, 0.0))
+            ramp = hou.Ramp((hou.rampBasis.Linear, hou.rampBasis.Linear), (0.0, 1.0), (0.0, 1.0))
+            for channel, _, _, _ in CHANNELS:
+                parm = node.parm('pv_splineRamp_' + channel)
+                if parm is not None:
+                    parm.set(ramp)
         if kind == 'shadow_cache' and source is not None and source.userData('physvfx_node_kind') == 'shadow_region':
             source_path = source.parm('pv_path')
             if source_path is not None:

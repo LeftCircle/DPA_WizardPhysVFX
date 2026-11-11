@@ -7,6 +7,7 @@ import math
 import re
 
 from .schema import FIELD_KINDS, OPERATIONS
+from .spline_channels import CHANNELS, default_guides, resolve_guides
 
 
 class AuthoringError(ValueError):
@@ -275,6 +276,54 @@ def author_field(stage, v):
     return prim
 
 
+def author_wisp_spline(stage, v):
+    Gf, _, UsdGeom, _, _ = _pxr()
+    path = _path(v['path'], 'Spline prim path')
+    parent = str(v.get('parent_path', '')).strip()
+    if parent:
+        parent = _path(parent, 'Parent prim path')
+        if not stage.GetPrimAtPath(parent):
+            raise AuthoringError(f'{parent}: parent prim does not exist in the upstream stage')
+        path = _path(str(parent) + '/' + str(path).rsplit('/', 1)[-1], 'Spline prim path')
+    _integer(v['dots'], 'Dot count', 1)
+    _integer(v['seed'], 'Seed', -2147483648)
+    _cache_name(v['cache_name'])
+    _positive(v['guide_size'], 'Guide marker size')
+    if v['use_stamp_voxel_size']:
+        _positive(v['stamp_voxel_size'], 'Object density voxel size')
+    try:
+        if 'spline_samples' in v and 'guide_positions' in v:
+            positions, samples = v['guide_positions'], v['spline_samples']
+        else:
+            data = dict(v)
+            if data.get('guides') is None:
+                data['guides'] = default_guides()
+            positions, samples = resolve_guides(data)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise AuthoringError(str(exc)) from exc
+    prim = _existing_or_create(stage, path, True, 'Xform')
+    if prim.IsA(UsdGeom.Gprim) or _tag(prim, 'isf_type') is not None or _tag(prim, 'operation') is not None:
+        raise AuthoringError(f'{path}: choose a separate Xform for the wisp spline')
+    old_type = _tag(prim, 'field_type')
+    if old_type is not None and old_type != 'wisp_spline':
+        raise AuthoringError(f'{path}: remove incompatible upstream field tags')
+    _attr(prim, 'field_type', 'Token', 'wisp_spline')
+    _attr(prim, 'splineDots', 'Int', v['dots'])
+    _attr(prim, 'splineSeed', 'Int', v['seed'])
+    _attr(prim, 'splinePositions', 'Point3fArray', [Gf.Vec3f(*g['position']) for g in samples])
+    for name, _, kind, _ in CHANNELS:
+        data = [Gf.Vec3f(*g[name]) if kind == 'vector' else float(g[name]) for g in samples]
+        _attr(prim, 'spline_' + name, 'Float3Array' if kind == 'vector' else 'FloatArray', data)
+    _stamp(prim, dict(v, stamp=False))
+    _display_color(prim, v)
+    from .preview import author_wisp_spline_preview
+    try:
+        author_wisp_spline_preview(stage, prim, positions, v, [g['position'] for g in samples])
+    except ValueError as exc:
+        raise AuthoringError(str(exc)) from exc
+    return prim
+
+
 def author_operation(stage, v):
     _, Sdf, UsdGeom, _, _ = _pxr()
     name = v['operation']
@@ -466,7 +515,7 @@ def author_shadow_cache(stage, v):
     return prim
 
 
-AUTHORS = {'shadow_cache': author_shadow_cache, 'shadow_region': author_shadow_region, 'field': author_field, 'operation': author_operation, 'camera': author_camera,
+AUTHORS = {'wisp_spline': author_wisp_spline, 'shadow_cache': author_shadow_cache, 'shadow_region': author_shadow_region, 'field': author_field, 'operation': author_operation, 'camera': author_camera,
            'light': author_light, 'settings': author_settings}
 
 

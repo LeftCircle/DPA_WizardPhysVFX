@@ -1,24 +1,35 @@
 #include "wisps.h"
 #include "helper_functions.h"
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
 
 namespace lux{
 
 CoordinateSys CoordinateSys::lerp(const CoordinateSys& other, float t) const {
-    auto theta_t = std::acos(this->that() * other.that());
-    auto theta_n = std::acos(this->nhat() * other.nhat());
-    auto theta_b = std::acos(this->bhat() * other.bhat());
-
-    //auto tq = std::pow(this->t.magnitude(), omt) * std::pow(other.t.magnitude(), t) ;
-    auto interp = [](Vector coord, Vector other_coord, float theta, float t){
+    auto interp = [](const Vector& coord, const Vector& other_coord, float t){
         const auto cm = coord.magnitude();
         const auto other_cm = other_coord.magnitude();
-        return std::pow(cm, 1.0 - t) * std::pow(other_cm, t) * 
-            (coord / cm * std::cos(theta * t) + other_coord / other_cm * std::sin(theta * t));
+        const auto a = coord / cm, b = other_coord / other_cm;
+        const double dot = std::clamp(double(a * b), -1.0, 1.0);
+        Vector direction;
+        if (dot > 0.999999) {
+            direction = (a * (1.0 - t) + b * t).unitvector();
+        } else if (dot < -0.999999) {
+            const Vector ref = std::abs(a.X()) < 0.9 ? Vector(1,0,0) : Vector(0,1,0);
+            const Vector perpendicular = (ref - a * (ref * a)).unitvector();
+            const double angle = std::acos(-1.0) * t;
+            direction = a * std::cos(angle) + perpendicular * std::sin(angle);
+        } else {
+            const double angle = std::acos(dot), denom = std::sin(angle);
+            direction = a * (std::sin((1.0-t)*angle)/denom) + b * (std::sin(t*angle)/denom);
+        }
+        return direction * (cm * (1.0 - t) + other_cm * t);
     };
     return CoordinateSys(
-        interp(this->t, other.t, theta_t, t),
-        interp(this->n, other.n, theta_n, t),
-        interp(this->b, other.b, theta_b, t)
+        interp(this->t, other.t, t),
+        interp(this->n, other.n, t),
+        interp(this->b, other.b, t)
     );
 }
 
@@ -49,16 +60,36 @@ WispSpline::WispSpline(
         int seed
 ) : _guide_particles(guide_particles), _n_dots(n_dots), _voxel_size(voxel_size), _seed(seed) 
 {
+    if (_guide_particles.size() < 2 || _n_dots == 0 || !std::isfinite(_voxel_size) || _voxel_size <= 0)
+        throw std::invalid_argument("wisp spline needs at least two guides, positive dot count and voxel size");
     // determine the length of the segment
     float l = 0;
-    for (int i = 0; i < _guide_particles.size() - 1; i++){
-        l += (_guide_particles[i + 1].location - _guide_particles[i].location).magnitude();
+    _cumulative_lengths.reserve(_guide_particles.size());
+    _cumulative_lengths.push_back(0.0f);
+    for (size_t i = 0; i + 1 < _guide_particles.size(); i++){
+        const auto length = (_guide_particles[i + 1].location - _guide_particles[i].location).magnitude();
+        if (!std::isfinite(length) || length <= 1e-10)
+            throw std::invalid_argument("wisp spline neighboring guides must have distinct finite positions");
+        const float next = l + static_cast<float>(length);
+        if (!(next > l)) throw std::invalid_argument("wisp spline segment too short for float precision");
+        l = next;
+        _cumulative_lengths.push_back(l);
     };
     _spline_length = l;
+    if (!std::isfinite(_spline_length)) throw std::invalid_argument("invalid wisp spline length");
+    for (const auto& guide : _guide_particles) {
+        for (const auto& axis : {guide.axis.t, guide.axis.n, guide.axis.b})
+            if (!std::isfinite(axis.magnitude()) || axis.magnitude() < 1e-10)
+                throw std::invalid_argument("wisp guide axes must be finite and nonzero");
+    }
 }
 
 vspf WispSpline::stamp_wisp_spline(){
-    auto grid = create_float_grid(_voxel_size, 0.0001);
+    return make_grid_field<float>(stamp_wisp_spline_grid());
+}
+
+openvdb::FloatGrid::Ptr WispSpline::stamp_wisp_spline_grid(){
+    auto grid = create_float_grid(_voxel_size, 0.0f);
     auto accessor = grid->getAccessor();
     const auto& transform = grid->transform();
     auto rng = [
@@ -79,21 +110,17 @@ vspf WispSpline::stamp_wisp_spline(){
 
         _stamp_one_wisp_dot(params, rng, accessor, transform);
     }
+    return grid;
 }
 
 
 std::pair<int, float> WispSpline::_locate_segment(float t){
-    float dist = _spline_length * t;
-    float accumulated_length = 0;
-    for (int i = 0; i < _guide_particles.size() - 1; i++){
-        float segment_length = (_guide_particles[i + 1].location - _guide_particles[i].location).magnitude();
-        if (accumulated_length + segment_length >= dist){
-            float u = (dist - accumulated_length) / segment_length;
-            return {i, u};
-        }
-        accumulated_length += segment_length;
-    }
-    return {_guide_particles.size() - 2, 1.0f};
+    const float dist = _spline_length * std::clamp(t, 0.0f, 1.0f);
+    auto end = std::upper_bound(_cumulative_lengths.begin(), _cumulative_lengths.end(), dist);
+    size_t i = end == _cumulative_lengths.end() ? _guide_particles.size() - 2 :
+               static_cast<size_t>(end - _cumulative_lengths.begin() - 1);
+    const float u = (dist - _cumulative_lengths[i]) / (_cumulative_lengths[i+1] - _cumulative_lengths[i]);
+    return {static_cast<int>(i), u};
 }
 
 } // end namespace lux

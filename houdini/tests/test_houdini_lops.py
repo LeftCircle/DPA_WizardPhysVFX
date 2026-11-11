@@ -44,6 +44,23 @@ class HoudiniLOPTests(unittest.TestCase):
         guide = stage.GetPrimAtPath('/World/ShadowHead/__physvfx_bounds')
         self.assertEqual(tuple(guide.GetAttribute('primvars:displayColor').Get()[0]), (1, 0, 0))
 
+    def test_wisp_spline_ramp_and_guide_stage(self):
+        node = self.add('wisp_spline')
+        node.parm('pv_path').set('/World/Waterfall')
+        node.parm('pv_splineMin_density').set(1)
+        node.parm('pv_splineMax_density').set(3)
+        node.parm('pv_ramp_subdivisions').set(4)
+        node.parmTuple('pv_guide_position2').set((0, 4, 0))
+        stage = node.stage()
+        spline = stage.GetPrimAtPath('/World/Waterfall')
+        self.assertEqual(spline.GetAttribute('pbvfx:field_type').Get(), 'wisp_spline')
+        density = spline.GetAttribute('pbvfx:spline_density').Get()
+        self.assertEqual(len(density), 5)
+        self.assertAlmostEqual(density[2], 2)
+        guide = stage.GetPrimAtPath('/World/Waterfall/__physvfx_spline_guide')
+        self.assertTrue(guide.GetAttribute('pbvfx:preview').Get())
+        self.assertEqual(len(guide.GetAttribute('points').Get()), 20)
+
     def test_render_view_lop_passes_stage_and_has_button(self):
         camera = self.add('camera')
         node = self.add('render_view', camera)

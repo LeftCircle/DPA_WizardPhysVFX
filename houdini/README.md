@@ -1,6 +1,6 @@
 # PhysVFX tools for Houdini Solaris
 
-The PhysVFX shelf creates five parameterized **Python Script LOPs**. They use
+The PhysVFX shelf creates parameterized **Python Script LOPs**. They use
 Houdini's OpenUSD bindings to author the attributes and relationships read by
 `python/usd_sphere_scene.py`. Houdini does not need the `physics_vfx` extension
 to author a stage; build it in the renderer environment to render the exported
@@ -8,7 +8,7 @@ USD. The tools are shelf-created nodes, not prebuilt HDAs or TAB-menu entries.
 
 ## Start Houdini with the tools
 
-Check out the `houdini_plugin` branch, open a terminal at the repository root,
+Check out the project branch, open a terminal at the repository root,
 and launch Houdini from that shell (Linux/macOS):
 
 ```bash
@@ -41,6 +41,44 @@ be used on a configured Python LOP if you want a local, shareable HDA; the
 `physvfx_houdini` Python module must still be installed wherever it cooks.
 
 ## An example workflow
+
+### Wisp spline
+
+1. Select the upstream Solaris node and click **PhysVFX Wisp Spline** on the
+   shelf. The node creates `/World/WispSpline` and a viewport-only blue line
+   with a cross at each guide. The first two guide positions start at `(0,0,0)`
+   and `(0,2,0)` in the spline prim's local coordinates.
+2. Under **Guide Particles**, use the multiparm controls to add guides and edit
+   their **Position** values. Adjacent positions must differ. A Transform LOP on
+   the spline prim moves the whole spline; **Parent Prim Path** can place it
+   underneath an existing prim.
+3. Leave **Guide Values** set to **Overall Ranges and Ramps**. In **Spline
+   Shape**, **Spline Noise 1**, and **Spline Noise 2**, each property has a
+   minimum, maximum, and float ramp. At each position, ramp 0 means minimum
+   and ramp 1 means maximum; values outside this range are clamped. Vector
+   properties use one ramp to mix their minimum and maximum vectors. The
+   Position Offset ramp displaces the base guide path; the displayed line shows
+   its sampled result. Ramp positions are normalized by distance along the base
+   connected segments before offsets are applied.
+4. **Ramp Samples per Segment** controls how many intervals capture the ramp
+   between artist guides (default 8). The resolved guide values are written to
+   USD, so Houdini itself is not needed by the renderer. For direct values
+   instead, choose **Per Guide** and edit the controls in each guide instance;
+   the range and ramp controls are then ignored. Dot count and seed apply to
+   the whole spline; the underlying spline does not use the per-guide ID or
+   dot-count members.
+5. Add a camera, light, and render settings, then use Render and View. Wisps
+   always stamp a density grid, using the render setting's density voxel size
+   unless **Override Density Voxel Size** is enabled. A nonempty **Stamp Cache
+   Name** saves and reuses a VDB; delete it or use a new name after any edit.
+   The guide geometry is excluded from the renderer. Rebuild the Python extension
+   and restart Houdini after pulling the spline changes.
+
+The spline path is a polyline between guides, not a smooth spatial curve. The
+independent frame vectors are interpolated individually; if changing their
+ranges, keep the frame vectors nonzero and choose compatible orientations.
+The current generator's Particle Scale multiplies the T-axis component, as in
+the existing standalone wisp implementation.
 
 1. Create a **PhysVFX Camera** at `/World/Camera`. Use a normal Transform LOP to
    place it, for example at `(0, 0, 8)` looking along local `-Z`.
@@ -80,6 +118,7 @@ unless it is represented by a separate prim. Operations can be chained.
 | Shelf tool | Parameters and authored USD |
 | --- | --- |
 | **PhysVFX Field** | Select an existing prim or create one. Supports all eight analytic ISF types, a USD mesh, bounded plane, unbounded plane, and wisp. Authors `pbvfx:isf_type` or `pbvfx:field_type`; mesh mode requires an existing `UsdGeomMesh` and leaves it untagged. |
+| **PhysVFX Wisp Spline** | Authors a guide path and sampled per-guide spline parameters, driven by overall ranges and ramps or manual values. |
 | **PhysVFX Shadow Region** | Creates a shadow region Xform and a red viewport guide. |
 | **PhysVFX Render and View** | Passes the scene through; saves a composed USDA, runs the renderer in the background, then opens the image viewer. |
 | **PhysVFX Shadow Cache** | Targets an existing region, saves its per-light shadow maps on demand, and enables disk-cache loading. |

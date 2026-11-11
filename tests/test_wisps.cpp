@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <stdexcept>
 
 #include "wisps.h"
 
@@ -66,7 +67,35 @@ TEST_CASE("Test wisp guide particle interp"){
     REQUIRE(wisp_guide_interp.axis.b.y() == Catch::Approx(0.0));
     REQUIRE(wisp_guide_interp.axis.b.z() == Catch::Approx(1.0));
     REQUIRE(wisp_guide_interp.id == 1);
+    auto endpoint = interpolate(wisp_guide_a, wisp_guide_b, 1.0f);
+    REQUIRE(endpoint.axis.t.x() == Catch::Approx(0.0).margin(1e-6));
+    REQUIRE(endpoint.axis.t.y() == Catch::Approx(1.0));
 
+}
+
+TEST_CASE("wisp spline stamps a deterministic field and rejects coincident guides") {
+    const FSVals noise(0.5, 2, Vector(0,0,0), 1, 2);
+    const CoordinateSys axis;
+    WispGuideParticle a(1, -1, 1, 1, noise, noise, Vector(1,1,1), Vector(0,0,0), axis, 1);
+    WispGuideParticle b(1, -1, 1, 1, noise, noise, Vector(1,1,1), Vector(0,4,0), axis, 2);
+    auto middle = interpolate(a, b, 0.5f);
+    REQUIRE(middle.axis.t.X() == Catch::Approx(1));
+    REQUIRE(middle.axis.n.Y() == Catch::Approx(1));
+    REQUIRE(middle.axis.b.Z() == Catch::Approx(1));
+    WispSpline spline({a, b}, 500, 0.25f, 7);
+    auto first = spline.stamp_wisp_spline_grid();
+    auto second = spline.stamp_wisp_spline_grid();
+    REQUIRE(first->activeVoxelCount() > 0);
+    REQUIRE(first->activeVoxelCount() == second->activeVoxelCount());
+    bool negative = false;
+    for (auto it = first->cbeginValueOn(); it; ++it) {
+        REQUIRE(*it == Catch::Approx(second->tree().getValue(it.getCoord())));
+        if (*it < 0) negative = true;
+    }
+    REQUIRE(negative);
+    REQUIRE(spline.stamp_wisp_spline());
+    REQUIRE_THROWS_AS(WispSpline({a, a}, 5, 0.25f, 1), std::invalid_argument);
+    REQUIRE_THROWS_AS(WispSpline({a}, 5, 0.25f, 1), std::invalid_argument);
 }
 
 

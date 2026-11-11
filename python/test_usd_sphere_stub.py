@@ -375,6 +375,57 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(bounded.sdf[0], 'pyro')
         self.assertEqual(bounded.objects[0].bounds_min, expanded.objects[0].bounds_min)
 
+    def test_wisp_spline_guides_stamp_as_density_and_validate_arrays(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = [p for p in stage.Traverse() if p.path != '/sphere']
+        attrs = {'pbvfx:field_type': 'wisp_spline', 'pbvfx:splineDots': 50,
+                 'pbvfx:splineSeed': 7, 'pbvfx:splinePositions': [(0,0,0), (0,4,0)]}
+        scalars = {'density': (1, 2), 'clump': (1, 1), 'pscale': (1, 2),
+                   'noise1Roughness': (.5,.5), 'noise1Octaves': (2,2),
+                   'noise1Frequency': (1,1), 'noise1FrequencyJump': (2,2),
+                   'noise2Roughness': (.5,.5), 'noise2Octaves': (2,2),
+                   'noise2Frequency': (1,1), 'noise2FrequencyJump': (2,2)}
+        vectors = {'displacement': (1,1,1), 'axisT': (1,0,0), 'axisN': (0,1,0),
+                   'axisB': (0,0,1), 'noise1Translation': (0,0,0), 'noise2Translation': (0,0,0)}
+        attrs.update({'pbvfx:spline_' + k: v for k,v in scalars.items()})
+        attrs.update({'pbvfx:spline_' + k: (v,v) for k,v in vectors.items()})
+        prim = Prim(None, '/spline', attrs, Matrix((2, 0, 0)))
+        stage.Traverse = lambda: original + [prim]
+        class Grid:
+            voxel_size = 0.2
+            def active_world_bounds(self): return ((-1,-1,-1), (1,5,1))
+        calls = []
+        class Spline:
+            def __init__(self, guides, dots, voxel, seed): calls.append((guides, dots, voxel, seed))
+            def stamp_grid(self): return Grid()
+        module.fx.FSVals = lambda *args: args
+        module.fx.CoordinateSys = lambda: SimpleNamespace()
+        module.fx.WispGuideParticle = lambda *args: args
+        module.fx.WispSpline = Spline
+        module.fx.make_grid_field = lambda grid: ('grid', grid)
+        scene = module.load_scene('scene')
+        item = scene.objects[0]
+        self.assertTrue(item.is_density and item.stamped)
+        self.assertEqual(calls[0][0][0][1], -1)
+        self.assertEqual(calls[0][0][1][1], -2)
+        self.assertEqual(calls[0][1:], (50, 0.2, 7))
+        self.assertEqual(scene.density, item.field)
+        self.assertLess(item.bounds_min[0], 1)
+        attrs['pbvfx:cacheName'] = 'spline_test'
+        module.fx.save_to_disk = lambda grid, path: Path(path).write_text('grid')
+        module.fx.load_float_grid = lambda path: Grid()
+        with tempfile.TemporaryDirectory() as tmp:
+            module.load_scene('scene', cache_dir=tmp)
+            self.assertTrue((Path(tmp) / 'spline_test.vdb').exists())
+            stamps = len(calls)
+            cached = module.load_scene('scene', cache_dir=tmp)
+            self.assertEqual(len(calls), stamps)
+            self.assertTrue(cached.objects[0].cache_hit)
+        attrs['pbvfx:spline_density'] = [1]
+        with self.assertRaisesRegex(ValueError, 'one value per position'):
+            module.load_scene('scene')
+
     def test_wisp_uses_density_and_transformed_grid_bounds(self):
         module, sphere, _, _, _, _ = fixture()
         stage = module.Usd.Stage.Open('scene')

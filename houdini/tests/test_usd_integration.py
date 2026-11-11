@@ -22,6 +22,17 @@ except ImportError:
 
 @unittest.skipUnless(HAS_USD, 'requires OpenUSD Python bindings')
 class RealUSDTests(unittest.TestCase):
+    def test_wisp_spline_usd_arrays_and_viewport_guide(self):
+        from physvfx_houdini.spline_channels import default_guides
+        stage = Usd.Stage.CreateInMemory()
+        v = defaults('wisp_spline'); v['guides'] = default_guides()
+        prim = author(stage, 'wisp_spline', v)
+        positions = prim.GetAttribute('pbvfx:splinePositions')
+        self.assertEqual(positions.GetTypeName(), Sdf.ValueTypeNames.Point3fArray)
+        self.assertEqual(len(positions.Get()), 9)
+        self.assertEqual(len(prim.GetAttribute('pbvfx:spline_density').Get()), 9)
+        guide = stage.GetPrimAtPath('/World/WispSpline/__physvfx_spline_guide')
+        self.assertTrue(guide.GetAttribute('pbvfx:preview').Get())
     def test_child_inherits_parent_translation(self):
         stage = Usd.Stage.CreateInMemory()
         v = defaults('field'); v.update(path='/World/Parent')

@@ -4,6 +4,7 @@ This file is independent of Houdini, USD, and the PhysVFX extension, so the
 node interfaces and USD authoring can be tested outside the application.
 """
 from dataclasses import dataclass
+from .spline_channels import CHANNELS
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,37 @@ def noise_fields(prefix, label):
     )
 
 
+def spline_range_fields(channels):
+    result = []
+    for name, label, kind, default in channels:
+        result.extend((P('splineMin_' + name, label + ' Minimum', kind, default),
+                       P('splineMax_' + name, label + ' Maximum', kind, default),
+                       P('splineRamp_' + name, label + ' Ramp', 'ramp', None,
+                         'Ramp values from 0 to 1 mix the minimum and maximum along arc length.')))
+    return tuple(result)
+
+
 PARAMETERS = {
+    'wisp_spline': (
+        ('Wisp Spline', (
+            P('path', 'Spline Prim Path', 'string', '/World/WispSpline'),
+            P('parent_path', 'Parent Prim Path', 'string', '',
+              'Optional existing parent; the spline uses its local coordinates.'),
+            P('mode', 'Guide Values', 'menu', 'ramp', choices=(('ramp', 'Overall Ranges and Ramps'), ('manual', 'Per Guide'))),
+            P('dots', 'Total Dot Count', 'int', 100000),
+            P('seed', 'Seed', 'int', 1),
+            P('use_stamp_voxel_size', 'Override Density Voxel Size', 'toggle', False),
+            P('stamp_voxel_size', 'Object Density Voxel Size', 'float', 0.025),
+            P('cache_name', 'Stamp Cache Name', 'string', ''),
+            P('show_preview', 'Show Guide Line and Points', 'toggle', True),
+            P('guide_size', 'Guide Marker Size', 'float', 0.12),
+            P('ramp_subdivisions', 'Ramp Samples per Segment', 'int', 8,
+              'Subdivide straight segments to capture curved ramps between guides.'),
+        ) + COLOR + (P('guides', 'Guide Particles', 'guides', None),)),
+        ('Spline Shape', spline_range_fields(CHANNELS[:8])),
+        ('Spline Noise 1', spline_range_fields(CHANNELS[8:13])),
+        ('Spline Noise 2', spline_range_fields(CHANNELS[13:])),
+    ),
     "render_view": (("Render and View", (
         P("usd_path", "USD Save Path", "string", "$HIP/outputs/physvfx_scene.usda",
           "The composed stage is saved here as a flattened USDA."),

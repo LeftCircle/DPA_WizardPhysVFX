@@ -2,6 +2,7 @@
 <shelfDocument>
   <toolshelf name="physvfx" label="PhysVFX">
     <memberTool name="physvfx_field"/>
+    <memberTool name="physvfx_wisp_spline"/>
     <memberTool name="physvfx_shadow_region"/>
     <memberTool name="physvfx_shadow_cache"/>
     <memberTool name="physvfx_operation"/>
@@ -14,6 +15,10 @@
   <tool name="physvfx_field" label="PhysVFX Field" icon="LOP_python">
     <script scriptType="python"><![CDATA[import physvfx_houdini
 physvfx_houdini.create_node('field')]]></script>
+  </tool>
+  <tool name="physvfx_wisp_spline" label="PhysVFX Wisp Spline" icon="LOP_python">
+    <script scriptType="python"><![CDATA[import physvfx_houdini
+physvfx_houdini.create_node('wisp_spline')]]></script>
   </tool>
   <tool name="physvfx_operation" label="PhysVFX Operation" icon="LOP_python">
     <script scriptType="python"><![CDATA[import physvfx_houdini

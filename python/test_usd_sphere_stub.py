@@ -285,6 +285,28 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(scene.objects[0].bounds_min, (-5, -5, -5))
         self.assertEqual(scene.sdf[0], 'intersection')
 
+    def test_unbounded_plane_cut_and_root_handling(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        plane = Prim(None, '/plane', {'pbvfx:field_type': 'infinite_plane'}, Matrix((3, 0, 0)))
+        cut = Prim(None, '/cut', {'pbvfx:operation': 'cutout', 'pbvfx:inputs': ['/sphere', '/plane']})
+        module.fx.make_plane = lambda p, n: ('plane', p, n)
+        module.fx.cutout = lambda a, b: ('cutout', a, b)
+        module.fx.intersection = lambda a, b: ('intersection', a, b)
+        stage.Traverse = lambda: original + [plane, cut]
+        scene = module.load_scene('scene')
+        self.assertEqual(scene.objects[0].bounds_min, (0, -1, -2.5))
+        self.assertEqual(scene.sdf[2][0], 'transformed')
+        cut.values['pbvfx:operation'] = 'intersection'
+        self.assertEqual(module.load_scene('scene').objects[0].bounds_min, (0, -1, -2.5))
+        cut.values['pbvfx:operation'] = 'union'
+        with self.assertRaisesRegex(ValueError, 'unbounded root'):
+            module.load_scene('scene')
+        stage.Traverse = lambda: original + [plane]
+        with self.assertRaisesRegex(ValueError, 'unbounded root'):
+            module.load_scene('scene')
+
     def test_pyro_signed_amplitude_and_explicit_bounds(self):
         module, sphere, _, _, _, _ = fixture()
         stage = module.Usd.Stage.Open('scene')

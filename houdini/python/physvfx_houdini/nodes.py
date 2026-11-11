@@ -160,6 +160,16 @@ def refresh_selected_nodes():
             continue
         group = node.parmTemplateGroup()
         missing = [spec for spec in parameters(kind) if group.find('pv_' + spec.name) is None]
+        menus_changed = False
+        for spec in parameters(kind):
+            if spec.kind != 'menu':
+                continue
+            existing = group.find('pv_' + spec.name)
+            if existing is not None and tuple(existing.menuItems()) != tuple(x[0] for x in spec.choices):
+                existing.setMenuItems(tuple(x[0] for x in spec.choices))
+                existing.setMenuLabels(tuple(x[1] for x in spec.choices))
+                group.replace('pv_' + spec.name, existing)
+                menus_changed = True
         code_parm = node.parm('python')
         if code_parm is not None and not code_parm.evalAsString().strip():
             code_parm.set("import hou\nfrom physvfx_houdini import cook\ncook(hou.pwd(), %r)\n" % kind)
@@ -171,6 +181,7 @@ def refresh_selected_nodes():
                 suffix += 1
             group.append(hou.FolderParmTemplate(folder_name, 'PhysVFX Updates',
                 parm_templates=tuple(_template(hou, spec) for spec in missing)))
+        if missing or menus_changed:
             node.setParmTemplateGroup(group)
         updated += 1
     if not updated:

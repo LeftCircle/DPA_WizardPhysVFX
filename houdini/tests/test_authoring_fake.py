@@ -112,7 +112,7 @@ class AuthoringContractTests(unittest.TestCase):
         field = defaults('field')
         self.assertEqual({x[0] for x in FIELD_KINDS}, {
             'isf_sphere', 'isf_torus', 'isf_cone', 'isf_box', 'isf_icosahedron',
-            'isf_steiner_patch', 'isf_ellipse', 'isf_cylinder', 'mesh', 'plane', 'wisp'})
+            'isf_steiner_patch', 'isf_ellipse', 'isf_cylinder', 'mesh', 'plane', 'infinite_plane', 'wisp'})
         for prefix in ('wispNoise1', 'wispNoise2'):
             for suffix in ('Roughness', 'Octaves', 'Translation', 'Frequency', 'FrequencyJump'):
                 self.assertIn(prefix + suffix, field)
@@ -158,6 +158,19 @@ class AuthoringContractTests(unittest.TestCase):
         v['show_stamp_bounds'] = False
         author(self.stage, 'field', v)
         self.assertEqual(guide.attrs['Visibility'].value, 'invisible')
+
+    def test_plane_grid_follows_normal_and_can_be_hidden(self):
+        for kind in ('plane', 'infinite_plane'):
+            stage = Stage()
+            v = defaults('field'); v.update(kind=kind, normal=(1, 2, 3), plane_guide_size=7)
+            author(stage, 'field', v)
+            guide = stage.GetPrimAtPath('/World/PhysVFXField/__physvfx_plane_grid')
+            self.assertTrue(guide.attrs['pbvfx:preview'].value)
+            for point in guide.attrs['Points'].value:
+                self.assertAlmostEqual(sum(a*b for a, b in zip(point, (1, 2, 3))), 0, places=6)
+            v['show_preview'] = False
+            author(stage, 'field', v)
+            self.assertEqual(guide.attrs['Visibility'].value, 'invisible')
 
     def test_shadow_region_authors_bounds_and_viewport_guide(self):
         v = defaults('shadow_region')

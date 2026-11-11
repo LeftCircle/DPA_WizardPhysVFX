@@ -25,7 +25,7 @@ FIELD_KINDS = (
     ("isf_cone", "ISF Cone"), ("isf_box", "ISF Box"),
     ("isf_icosahedron", "ISF Icosahedron"), ("isf_steiner_patch", "ISF Steiner Patch"),
     ("isf_ellipse", "ISF Ellipse"), ("isf_cylinder", "ISF Cylinder"),
-    ("mesh", "USD Mesh"), ("plane", "Bounded Plane"), ("wisp", "Wisp"),
+    ("mesh", "USD Mesh"), ("plane", "Bounded Plane"), ("infinite_plane", "Plane (Unbounded)"), ("wisp", "Wisp"),
 )
 OPERATIONS = (("union", "Union"), ("intersection", "Intersection"),
               ("cutout", "Cutout (A minus B)"), ("add", "Add"),
@@ -129,6 +129,8 @@ PARAMETERS = {
             P("minorRadius", "Minor Radius", "float", 0.4),
             P("height", "Height", "float", 2.0),
             P("normal", "Normal", "vector", (0.0, 1.0, 0.0)),
+            P("plane_guide_size", "Plane Grid Half Size", "float", 5.0,
+              "Local-space half size of the viewport grid; does not limit the plane."),
             P("theta", "Cone Angle (radians)", "float", 0.5),
             P("roundingExponent", "Box Rounding Exponent", "int", 3),
             P("meshHalfWidth", "Mesh Half Width (voxels)", "float", 3.0),

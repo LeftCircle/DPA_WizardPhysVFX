@@ -20,6 +20,9 @@ class Template:
     def __init__(self, name, label, *args, **kwargs):
         self._name, self._label, self.args, self.kwargs = name, label, args, kwargs
     def label(self): return self._label
+    def menuItems(self): return self.kwargs.get('menu_items', ())
+    def setMenuItems(self, items): self.kwargs['menu_items'] = items
+    def setMenuLabels(self, labels): self.kwargs['menu_labels'] = labels
 
 
 class Folder(Template):
@@ -31,6 +34,9 @@ class TemplateGroup:
     def append(self, folder): self.folders.append(folder)
     def find(self, name):
         return next((item for folder in self.folders for item in (folder, *folder.kwargs["parm_templates"]) if item._name == name), None)
+    def replace(self, name, template):
+        for folder in self.folders:
+            folder.kwargs['parm_templates'] = tuple(template if item._name == name else item for item in folder.kwargs['parm_templates'])
 
 
 class Parm:
@@ -393,6 +399,18 @@ class NodeConstructionTests(unittest.TestCase):
             count = len(node.groups.folders)
             refresh_selected_nodes()
             self.assertEqual(len(node.groups.folders), count)
+
+    def test_refresh_updates_field_menu_without_resetting_selection(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('field', network=network)
+            node.values['pv_kind'].set('plane')
+            template = node.groups.find('pv_kind')
+            template.setMenuItems(tuple(x for x in template.menuItems() if x != 'infinite_plane'))
+            hou.selectedNodes = lambda: [node]
+            refresh_selected_nodes()
+            self.assertIn('infinite_plane', node.groups.find('pv_kind').menuItems())
+            self.assertEqual(node.values['pv_kind'].evalAsString(), 'plane')
 
     def test_shelf_xml_references_all_tools(self):
         path = Path(__file__).resolve().parents[1] / 'toolbar' / 'physvfx.shelf'

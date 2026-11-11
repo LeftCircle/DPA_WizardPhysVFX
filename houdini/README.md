@@ -79,7 +79,7 @@ unless it is represented by a separate prim. Operations can be chained.
 
 | Shelf tool | Parameters and authored USD |
 | --- | --- |
-| **PhysVFX Field** | Select an existing prim or create one. Supports all eight analytic ISF types, a USD mesh, bounded plane, and wisp. Authors `pbvfx:isf_type` or `pbvfx:field_type`; mesh mode requires an existing `UsdGeomMesh` and leaves it untagged. |
+| **PhysVFX Field** | Select an existing prim or create one. Supports all eight analytic ISF types, a USD mesh, bounded plane, unbounded plane, and wisp. Authors `pbvfx:isf_type` or `pbvfx:field_type`; mesh mode requires an existing `UsdGeomMesh` and leaves it untagged. |
 | **PhysVFX Shadow Region** | Creates a shadow region Xform and a red viewport guide. |
 | **PhysVFX Render and View** | Passes the scene through; saves a composed USDA, runs the renderer in the background, then opens the image viewer. |
 | **PhysVFX Shadow Cache** | Targets an existing region, saves its per-light shadow maps on demand, and enables disk-cache loading. |
@@ -97,6 +97,17 @@ upstream or enable the override. To use a different field type on an existing
 prim, remove incompatible upstream PhysVFX tags first; the tools do not silently change conflicting tags
 on composed layers. A mesh must be a closed triangle/quad polygon mesh with
 `subdivisionScheme = "none"` for a useful signed distance.
+
+Both plane types show a blue grid on the plane when **Show Bounds Preview** is
+enabled. **Plane Grid Half Size** changes only the viewport guide, in prim-local
+units. Its orientation follows **Normal** and its position follows the prim
+transform. The bounded plane still clips to its world-space bounds. Select
+**Plane (Unbounded)** for a true infinite cutting field: use the plane as Input B
+of Cutout, or use it in Intersection with a bounded field. A renderable result
+must have finite bounds. To stamp an unbounded plane, enable **Stamp Field** and
+**Use Specified Stamp Bounds**. The grid is a tagged viewport guide, excluded
+from rendering. To add the new menu option to existing Field nodes, select them
+and use **Refresh PhysVFX Parameters** after restarting Houdini.
 
 The wisp tab provides `wispDots`, `wispDensity`, `wispClump`, `wispPscale`,
 `wispSeed`, `wispMin`, `wispMax`, `wispDisplacement`, and both sets of

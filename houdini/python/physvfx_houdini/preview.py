@@ -4,6 +4,62 @@ import math
 PREVIEW_CHILD = '__physvfx_bounds'
 SURFACE_CHILD = '__physvfx_surface'
 CAMERA_CHILD = '__physvfx_camera_range'
+PLANE_CHILD = '__physvfx_plane_grid'
+
+
+def plane_grid_lines(normal, size, divisions=10):
+    """Local-space grid on the plane through the prim origin."""
+    length = math.sqrt(sum(x*x for x in normal))
+    n = tuple(x / length for x in normal)
+    ref = (0, 1, 0) if abs(n[1]) < 0.9 else (1, 0, 0)
+    def cross(a, b):
+        return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+    u = cross(n, ref)
+    length = math.sqrt(sum(x*x for x in u))
+    u = tuple(x / length for x in u)
+    v = cross(n, u)
+    def point(a, b):
+        return tuple(a*u[i] + b*v[i] for i in range(3))
+    lines = []
+    for i in range(divisions + 1):
+        t = size * (2*i/divisions - 1)
+        lines.extend(((point(t, -size), point(t, size)),
+                      (point(-size, t), point(size, t))))
+    return lines
+
+
+def author_plane_grid(stage, prim, kind, values):
+    from pxr import Gf, Sdf, UsdGeom
+    path = str(prim.GetPath()) + '/' + PLANE_CHILD
+    proxy = stage.GetPrimAtPath(path)
+    if proxy:
+        marker = proxy.GetAttribute('pbvfx:preview')
+        if not marker or marker.Get() is not True or not proxy.IsA(UsdGeom.BasisCurves):
+            raise ValueError(f'{path}: reserved preview path is already in use')
+    if kind not in ('plane', 'infinite_plane') or not values.get('show_preview', True):
+        if proxy:
+            UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
+        return
+    size = float(values.get('plane_guide_size', 5.0))
+    lines = plane_grid_lines(values['normal'], size)
+    points = [p for line in lines for p in line]
+    if not proxy:
+        proxy = stage.DefinePrim(path, 'BasisCurves')
+    if not proxy:
+        raise ValueError(f'{path}: could not create plane grid')
+    proxy.CreateAttribute('pbvfx:preview', Sdf.ValueTypeNames.Bool, custom=True).Set(True)
+    geom = UsdGeom.BasisCurves(proxy)
+    geom.CreateTypeAttr().Set(UsdGeom.Tokens.linear)
+    geom.CreateCurveVertexCountsAttr().Set([2] * len(lines))
+    geom.CreatePointsAttr().Set([Gf.Vec3f(*p) for p in points])
+    width = max(size * 0.003, 0.002)
+    geom.CreateWidthsAttr().Set([width])
+    geom.SetWidthsInterpolation(UsdGeom.Tokens.constant)
+    geom.CreateExtentAttr().Set([Gf.Vec3f(*(min(p[i] for p in points)-width for i in range(3))),
+                                 Gf.Vec3f(*(max(p[i] for p in points)+width for i in range(3)))])
+    UsdGeom.PrimvarsAPI(proxy).CreatePrimvar('displayColor', Sdf.ValueTypeNames.Color3fArray,
+                                            UsdGeom.Tokens.constant).Set([Gf.Vec3f(0.2, 0.7, 1.0)])
+    UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)
 
 
 def camera_range_lines(near, far, horizontal, vertical, focal, steps=12):

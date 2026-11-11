@@ -464,6 +464,14 @@ def get_plane_object(prim, cache, scale):
                        bounds_min=lo, bounds_max=hi)
 
 
+def get_infinite_plane_object(prim, cache, scale):
+    matrix = cache.GetLocalToWorldTransform(prim)
+    field = _world_to_local(fx.make_plane(fx.Vector(0, 0, 0), _normal(prim)), matrix, scale, prim.GetPath())
+    rgb = _display_color(prim)
+    return SceneObject(str(prim.GetPath()), 'infinite_plane', field, fx.Color(*rgb, 0), rgb,
+                       bounds_min=None, bounds_max=None)
+
+
 def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None):
     """Create a seeded wisp density grid in local coordinates."""
     if _custom(prim, 'field_type', None) != 'wisp':
@@ -525,6 +533,8 @@ def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_sc
     if _custom(prim, 'useStampBounds', False) and (item.is_density or not stamp):
         raise ValueError(f'{prim.GetPath()}: specified stamp bounds require Stamp Field on a non-wisp field')
     if stamp and not item.is_density:
+        if item.bounds_min is None and not _custom(prim, 'useStampBounds', False):
+            raise ValueError(f'{prim.GetPath()}: unbounded fields require specified stamp bounds')
         if _custom(prim, 'useStampBounds', False):
             if matrix is None:
                 raise ValueError(f'{prim.GetPath()}: missing transform for stamp bounds')
@@ -641,7 +651,7 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
             operations[path] = (prim, str(op))
             continue
         field_type = _custom(prim, 'field_type', None)
-        if field_type is not None and field_type not in ('wisp', 'plane'):
+        if field_type is not None and field_type not in ('wisp', 'plane', 'infinite_plane'):
             raise ValueError(f'{path}: unknown pbvfx:field_type {field_type!r}')
         if field_type and _custom(prim, 'isf_type', None) is not None:
             raise ValueError(f'{path}: choose either pbvfx:field_type or pbvfx:isf_type')
@@ -649,6 +659,8 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
             item = get_wisp_object(prim, cache, settings, scale, stamp_cache)
         elif field_type == 'plane':
             item = get_plane_object(prim, cache, scale)
+        elif field_type == 'infinite_plane':
+            item = get_infinite_plane_object(prim, cache, scale)
         else:
             item = get_isf_object(prim, cache, scale)
         if item is None and prim.IsA(UsdGeom.Mesh):
@@ -688,14 +700,21 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
                 lo, hi = _bounds(prim, scale)
                 field = _clip_field(field, lo, hi)
             else:
+                if inputs[0].bounds_min is None:
+                    raise ValueError(f'{path}: pyro of an unbounded field requires explicit bounds')
                 # An estimate, not a mathematical bound for arbitrary fields.
                 amplitude = float(_custom(prim, 'amplitude', 0.25)) * scale
                 padding = 4.0 * max(amplitude, 0.0)
                 lo = tuple(x - padding for x in inputs[0].bounds_min)
                 hi = tuple(x + padding for x in inputs[0].bounds_max)
         elif policy == 'inputs':
-            lo = tuple(min(obj.bounds_min[i] for obj in inputs) for i in range(3))
-            hi = tuple(max(obj.bounds_max[i] for obj in inputs) for i in range(3))
+            finite = [obj for obj in inputs if obj.bounds_min is not None]
+            if name == 'cutout':
+                finite = inputs[:1] if inputs[0].bounds_min is not None else []
+            elif name == 'union' and len(finite) != len(inputs):
+                finite = []
+            lo = tuple(min(obj.bounds_min[i] for obj in finite) for i in range(3)) if finite else None
+            hi = tuple(max(obj.bounds_max[i] for obj in finite) for i in range(3)) if finite else None
         else:
             raise ValueError(f'{path}: unknown operation bounds policy {policy!r}')
         rgb = _display_color(prim) if (prim.GetAttribute('primvars:displayColor') or
@@ -707,8 +726,12 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
 
     for path in operations:
         resolve(path)
-    return [objects[str(p.GetPath())] for p in prims
-            if str(p.GetPath()) in objects and str(p.GetPath()) not in consumed]
+    roots = [objects[str(p.GetPath())] for p in prims
+             if str(p.GetPath()) in objects and str(p.GetPath()) not in consumed]
+    for obj in roots:
+        if obj.bounds_min is None:
+            raise ValueError(f'{obj.path}: unbounded root cannot be rendered; use it as a cutter or specify stamp bounds')
+    return roots
 
 
 @dataclass

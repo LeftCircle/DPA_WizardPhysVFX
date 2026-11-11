@@ -200,9 +200,11 @@ def author_field(stage, v):
     _cache_name(v['cache_name'])
     if v['color_mode'] != 'inherit':
         _color(v['color'])
-    if kind == 'plane':
-        _bounds(v)
+    if kind in ('plane', 'infinite_plane'):
+        if kind == 'plane':
+            _bounds(v)
         _normal(v['normal'])
+        _positive(v.get('plane_guide_size', 5.0), 'Plane grid half size')
     if kind == 'mesh' and not stage.GetPrimAtPath(path):
         raise AuthoringError(f'{path}: select an existing USD Mesh')
     prim = _existing_or_create(stage, path, bool(v['create']),
@@ -242,16 +244,19 @@ def author_field(stage, v):
         if old_isf is not None or (old_type is not None and str(old_type) != kind):
             raise AuthoringError(f'{path}: remove incompatible upstream field tags before assigning {kind}')
         _attr(prim, 'field_type', 'Token', kind)
-        if kind == 'plane':
+        if kind in ('plane', 'infinite_plane'):
             _float3(prim, 'normal', _normal(v['normal']))
-            _write_bounds(prim, v)
+            if kind == 'plane':
+                _write_bounds(prim, v)
         else:
             _write_wisp(prim, v)
     _stamp(prim, v)
     _display_color(prim, v)
     from .preview import author_preview
     try:
-        author_preview(stage, prim, kind, v)
+        author_preview(stage, prim, kind, dict(v, show_preview=False) if kind == 'infinite_plane' else v)
+        from .preview import author_plane_grid
+        author_plane_grid(stage, prim, kind, v)
         from .preview import author_stamp_preview
         author_stamp_preview(stage, prim, v)
     except ValueError as exc:

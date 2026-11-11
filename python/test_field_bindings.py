@@ -174,6 +174,15 @@ class FieldBindingsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fx.noise_warp_field(plane, fx.make_constant(1.0), self.origin, 1.0)
 
+    def test_terrain_displace_zero_noise_preserves_field(self):
+        vals = fx.FSVals(0.5, 2, self.origin, 1, 2)
+        field = fx.isf_sphere(self.origin, 1)
+        displaced = fx.terrain_displace(field, vals, 0, 0, 1, 1, 0.3, 1)
+        for p in (fx.Vector(2, 0, 0), fx.Vector(0, 0.5, 0)):
+            self.assertAlmostEqual(displaced.eval(p), field.eval(p), places=5)
+        with self.assertRaises(ValueError):
+            fx.terrain_displace(field, vals, 1, 1, 1, 1, 0.3, 0)
+
     def test_cone_gradient_caps_and_nearest_point_are_stable(self):
         cone = fx.isf_cone(self.origin, fx.Vector(0, 2, 0), 2, 0.5)
         self.assertLess(cone.eval(fx.Vector(0.1, 1.99999, 0)), 0)

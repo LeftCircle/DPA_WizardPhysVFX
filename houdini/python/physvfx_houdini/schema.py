@@ -30,7 +30,7 @@ FIELD_KINDS = (
 OPERATIONS = (("union", "Union"), ("intersection", "Intersection"),
               ("cutout", "Cutout (A minus B)"), ("add", "Add"),
               ("subtract", "Subtract (A minus B)"), ("pyro", "Pyroclastic"),
-              ("noise_warp", "Fractal Noise Warp"))
+              ("noise_warp", "Fractal Noise Warp"), ("terrain_displace", "Terrain Displace"))
 
 COLOR = (
     P("color_mode", "Color Authoring", "menu", "inherit",
@@ -157,7 +157,7 @@ PARAMETERS = {
             P("input_a", "Input A Prim Path", "string", "",
               "Absolute path of a field or operation. A is the retained field for cutout."),
             P("input_b", "Input B Prim Path", "string", "",
-              "Second input for binary operations; omitted for pyro and noise warp."),
+              "Second input for binary operations; omitted for pyro, noise warp and terrain displacement."),
         ) + COLOR + STAMP),
         ("Noise and Bounds", (
             P("roughness", "Roughness", "float", 0.5),
@@ -172,8 +172,10 @@ PARAMETERS = {
             P("terrainGammaNeg", "Terrain Negative Gamma", "float", 1.0),
             P("terrainTransition", "Terrain Gamma Transition", "float", 0.3,
               "Positive noise magnitude where gamma reaches its positive or negative value."),
+            P("terrainIterations", "Terrain Nearest Point Iterations", "int", 1,
+              "Number of nearest-point iterations for Terrain Displace."),
             P("amplitude", "Amplitude", "float", 0.25,
-              "Pyro: positive expands and negative contracts. Noise warp requires a non-negative amplitude."),
+              "Pyro: positive expands. Noise warp and terrain displacement: non-negative overall strength."),
             P("gamma", "Pyro Gamma", "float", 1.0),
             P("iterations", "Pyro Iterations", "int", 1),
             P("normal", "Warp Direction", "vector", (0.0, 1.0, 0.0)),

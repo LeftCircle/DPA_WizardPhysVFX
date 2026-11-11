@@ -133,6 +133,14 @@ Noise operations expose `roughness`, `octaves`, `frequency`, `frequencyJump`,
 `noiseTranslation`, and `amplitude`. Pyro additionally uses `gamma` and
 `iterations`; noise warp uses `normal` as its direction. The normal for a field
 is local; the noise-warp direction and bounds are in stage world coordinates.
+For arbitrary analytic fields or USD meshes, choose **Terrain Displace** on a
+PhysVFX Operation and set Input A to the field or mesh prim. Set the world-space
+Bounds Minimum/Maximum large enough for the displaced result. The nearest-point
+iterations and positive/negative terrain controls shape the displacement;
+Amplitude multiplies both terrain amplitudes. Meshes use a sampled level set,
+so voxel resolution and mesh half width affect the result. Clear old stamp or
+shadow caches after edits. Refresh existing operation nodes to add the menu
+item and iteration control; rebuild the Python extension after updating.
 For terrain, select **Fractal Noise Warp** on a PhysVFX Operation, connect a
 bounded plane as Input A, and choose **Fractal Sum Terrain** under **Warp Noise
 Type**. The positive and negative terrain amplitudes and gammas shape the two

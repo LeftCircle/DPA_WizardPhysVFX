@@ -436,6 +436,13 @@ PYBIND11_MODULE(physics_vfx, module)
         return make_fstn(FSVals(vals), amp_pos, amp_neg, gamma_pos, gamma_neg, transition);
     }, py::arg("values"), py::arg("amp_pos"), py::arg("amp_neg"),
        py::arg("gamma_pos"), py::arg("gamma_neg"), py::arg("t_point"));
+    module.def("terrain_displace", [](const vspf& field, const FSVals& vals, float amp_pos,
+                                        float amp_neg, float gamma_pos, float gamma_neg,
+                                        float transition, int iters) {
+        if (!field || iters < 1) throw py::value_error("field is required and iterations must be positive");
+        return terrain_displace(field, FSVals(vals), amp_pos, amp_neg, gamma_pos, gamma_neg, transition, iters);
+    }, py::arg("field"), py::arg("values"), py::arg("amp_pos"), py::arg("amp_neg"),
+       py::arg("gamma_pos"), py::arg("gamma_neg"), py::arg("t_point"), py::arg("iters") = 1);
     module.def("make_fade_factor", &make_fade_factor, py::arg("center"), py::arg("fade"), py::arg("radius"));
 
     // Preserve the shorter existing names while exposing the C++ names too.

@@ -307,6 +307,30 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(scene.objects[0].bounds_min, (-5, -5, -5))
         self.assertEqual(scene.sdf[0], 'intersection')
 
+    def test_terrain_displace_consumes_field_and_converts_units(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        op = Prim(None, '/terrain', {'pbvfx:operation': 'terrain_displace', 'pbvfx:inputs': ['/sphere'],
+             'pbvfx:boundsMin': (-10, -10, -10), 'pbvfx:boundsMax': (10, 10, 10),
+             'pbvfx:amplitude': 2, 'pbvfx:terrainAmpPos': 3, 'pbvfx:terrainAmpNeg': 4,
+             'pbvfx:terrainGammaPos': 2, 'pbvfx:terrainGammaNeg': 0.5, 'pbvfx:terrainTransition': 0.2,
+             'pbvfx:terrainIterations': 3})
+        stage.Traverse = lambda: original + [op]
+        module.fx.FSVals = lambda *args: ('values', args)
+        calls = []
+        module.fx.terrain_displace = lambda *args: calls.append(args) or ('terrain', args)
+        module.fx.make_plane = lambda p, n: ('plane', p, n)
+        module.fx.intersection = lambda a, b: ('clip', a, b)
+        scene = module.load_scene('scene')
+        self.assertEqual([item.path for item in scene.objects], ['/terrain'])
+        self.assertEqual(calls[0][2:], (3, 4, 2, 0.5, 0.2, 3))
+        self.assertEqual(calls[0][1][1][3], 2.0)
+        self.assertEqual(scene.objects[0].bounds_max, (5, 5, 5))
+        op.values['pbvfx:terrainIterations'] = 0
+        with self.assertRaisesRegex(ValueError, 'iterations'):
+            module.load_scene('scene')
+
     def test_unbounded_plane_cut_and_root_handling(self):
         module, sphere, _, _, _, _ = fixture()
         stage = module.Usd.Stage.Open('scene')

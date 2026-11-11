@@ -290,12 +290,15 @@ class AuthoringContractTests(unittest.TestCase):
                     input_a='/World/A', input_b='/World/B')
                 prim = author(self.stage, 'operation', v)
                 self.assertEqual(prim.attrs['pbvfx:operation'].value, op)
-                expected = ['/World/A'] if op in ('pyro', 'noise_warp') else ['/World/A', '/World/B']
+                expected = ['/World/A'] if op in ('pyro', 'noise_warp', 'terrain_displace') else ['/World/A', '/World/B']
                 self.assertEqual(prim.rels['pbvfx:inputs'].targets, expected)
-                if op in ('add', 'subtract', 'noise_warp'):
+                if op in ('add', 'subtract', 'noise_warp', 'terrain_displace'):
                     self.assertEqual(prim.attrs['pbvfx:boundsMax'].typ, 'Point3f')
                 if op == 'pyro': self.assertIn('pbvfx:iterations', prim.attrs)
                 if op == 'noise_warp': self.assertIn('pbvfx:normal', prim.attrs)
+                if op == 'terrain_displace':
+                    self.assertEqual(prim.attrs['pbvfx:terrainIterations'].value, 1)
+                    self.assertEqual(prim.attrs['pbvfx:terrainAmpPos'].value, 1.0)
 
     def test_camera_light_settings_and_shadow_override(self):
         camera = author(self.stage, 'camera', defaults('camera'))

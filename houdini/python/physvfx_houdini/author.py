@@ -275,7 +275,7 @@ def author_operation(stage, v):
         raise AuthoringError(f'Unsupported field operation: {name}')
     path = _path(v['path'], 'Operation path')
     targets = [_path(v['input_a'], 'Input A')]
-    if name not in ('pyro', 'noise_warp'):
+    if name not in ('pyro', 'noise_warp', 'terrain_displace'):
         targets.append(_path(v['input_b'], 'Input B'))
     if path in targets:
         raise AuthoringError('An operation cannot reference itself')
@@ -286,12 +286,12 @@ def author_operation(stage, v):
         if not (source.IsA(UsdGeom.Mesh) or _tag(source, 'field_type') is not None or
                 _tag(source, 'isf_type') is not None or _tag(source, 'operation') is not None):
             raise AuthoringError(f'{target}: input is not a PhysVFX field, operation, or USD Mesh')
-    if name in ('add', 'subtract', 'noise_warp'):
+    if name in ('add', 'subtract', 'noise_warp', 'terrain_displace'):
         _bounds(v)
     _cache_name(v['cache_name'])
     if v['color_mode'] != 'inherit':
         _color(v['color'])
-    if name in ('pyro', 'noise_warp'):
+    if name in ('pyro', 'noise_warp', 'terrain_displace'):
         for key in ('octaves', 'frequency', 'frequencyJump'):
             _positive(v[key], key)
         _number(v['roughness'], 'roughness', 0)
@@ -302,6 +302,12 @@ def author_operation(stage, v):
             _integer(v['iterations'], 'Iterations', 1)
             if v.get('use_pyro_bounds', False):
                 _bounds(v)
+        elif name == 'terrain_displace':
+            for key in ('terrainAmpPos', 'terrainAmpNeg'):
+                _number(v.get(key, 1.0), key, 0)
+            for key, default in (('terrainGammaPos', 1.0), ('terrainGammaNeg', 1.0), ('terrainTransition', 0.3)):
+                _positive(v.get(key, default), key)
+            _integer(v.get('terrainIterations', 1), 'Terrain iterations', 1)
         else:
             _normal(v['normal'], 'Warp direction')
             noise_type = v.get('noise_type', 'fspn')
@@ -317,9 +323,9 @@ def author_operation(stage, v):
         raise AuthoringError(f'{path}: choose a separate Xform for the operation')
     _attr(prim, 'operation', 'Token', name)
     prim.CreateRelationship('pbvfx:inputs', custom=True).SetTargets(targets)
-    if name in ('add', 'subtract', 'noise_warp'):
+    if name in ('add', 'subtract', 'noise_warp', 'terrain_displace'):
         _write_bounds(prim, v)
-    if name in ('pyro', 'noise_warp'):
+    if name in ('pyro', 'noise_warp', 'terrain_displace'):
         for key in ('roughness', 'octaves', 'frequency', 'frequencyJump', 'amplitude'):
             _float(prim, key, float(v[key]))
         _float3(prim, 'noiseTranslation', _vec(v['noiseTranslation'], 3, 'Noise translation'))
@@ -329,6 +335,12 @@ def author_operation(stage, v):
             _attr(prim, 'usePyroBounds', 'Bool', bool(v.get('use_pyro_bounds', False)))
             if v.get('use_pyro_bounds', False):
                 _write_bounds(prim, v)
+        elif name == 'terrain_displace':
+            for key, default in (('terrainAmpPos', 1.0), ('terrainAmpNeg', 1.0),
+                                 ('terrainGammaPos', 1.0), ('terrainGammaNeg', 1.0),
+                                 ('terrainTransition', 0.3)):
+                _float(prim, key, float(v.get(key, default)))
+            _attr(prim, 'terrainIterations', 'Int', v.get('terrainIterations', 1))
         else:
             _float3(prim, 'normal', _normal(v['normal'], 'Warp direction'))
             noise_type = v.get('noise_type', 'fspn')

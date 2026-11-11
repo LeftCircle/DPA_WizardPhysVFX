@@ -608,6 +608,26 @@ def _noise_warp_operation(prim, inputs, scale):
     return fx.noise_warp_field(inputs[0].field, noise, direction, amplitude)
 
 
+def _terrain_displace_operation(prim, inputs, scale):
+    roughness = _positive(_custom(prim, 'roughness', 0.5), 'pbvfx:roughness', allow_zero=True)
+    octaves = _positive(_custom(prim, 'octaves', 3.0), 'pbvfx:octaves')
+    frequency = _positive(_custom(prim, 'frequency', 1.0), 'pbvfx:frequency') / scale
+    jump = _positive(_custom(prim, 'frequencyJump', 2.0), 'pbvfx:frequencyJump')
+    translation = _fxvec(_vec(_custom(prim, 'noiseTranslation', (0, 0, 0)), scale))
+    amplitude = _positive(_custom(prim, 'amplitude', 0.25), 'pbvfx:amplitude', allow_zero=True) * scale
+    amp_pos = _positive(_custom(prim, 'terrainAmpPos', 1.0), 'pbvfx:terrainAmpPos', allow_zero=True)
+    amp_neg = _positive(_custom(prim, 'terrainAmpNeg', 1.0), 'pbvfx:terrainAmpNeg', allow_zero=True)
+    gamma_pos = _positive(_custom(prim, 'terrainGammaPos', 1.0), 'pbvfx:terrainGammaPos')
+    gamma_neg = _positive(_custom(prim, 'terrainGammaNeg', 1.0), 'pbvfx:terrainGammaNeg')
+    transition = _positive(_custom(prim, 'terrainTransition', 0.3), 'pbvfx:terrainTransition')
+    iters = int(_custom(prim, 'terrainIterations', 1))
+    if iters < 1:
+        raise ValueError(f'{prim.GetPath()}: terrain iterations must be positive')
+    vals = fx.FSVals(roughness, octaves, translation, frequency, jump)
+    return fx.terrain_displace(inputs[0].field, vals, amplitude * amp_pos, amplitude * amp_neg,
+                               gamma_pos, gamma_neg, transition, iters)
+
+
 def _pyro_operation(prim, inputs, scale):
     roughness = _positive(_custom(prim, 'roughness', 0.5), 'pbvfx:roughness', allow_zero=True)
     octaves = _positive(_custom(prim, 'octaves', 3.0), 'pbvfx:octaves')
@@ -635,6 +655,7 @@ FIELD_OPERATIONS.update({
     'cutout': (2, _binary_operation('cutout'), 'inputs'),
     'pyro': (1, _pyro_operation, 'pyro'),
     'noise_warp': (1, _noise_warp_operation, 'explicit'),
+    'terrain_displace': (1, _terrain_displace_operation, 'explicit'),
     'add': (2, _binary_operation('add'), 'explicit'),
     'subtract': (2, _binary_operation('subtract'), 'explicit'),
 })

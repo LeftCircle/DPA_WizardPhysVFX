@@ -229,9 +229,9 @@ def author_preview(stage, prim, kind, values):
     ).Set([Gf.Vec3f(*( (1.0, 0.0, 0.0) if kind == 'shadow_region' else (1.0, 0.65, 0.1) ))])
     UsdGeom.Imageable(proxy).CreateVisibilityAttr().Set(UsdGeom.Tokens.inherited)
     from .preview_surface import ISF_KINDS, polygonize
-    # A native USD sphere already provides an exact viewport surface unless
-    # PhysVFX's radius override differs from the native sphere radius.
-    native_sphere = kind == 'isf_sphere' and prim.IsA(UsdGeom.Sphere) and not values['override_radius']
+    # Radius overrides are authored onto native USD spheres as well, so they
+    # already provide the exact viewport surface without a duplicate mesh.
+    native_sphere = kind == 'isf_sphere' and prim.IsA(UsdGeom.Sphere)
     if kind not in ISF_KINDS or native_sphere:
         if surface:
             UsdGeom.Imageable(surface).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)

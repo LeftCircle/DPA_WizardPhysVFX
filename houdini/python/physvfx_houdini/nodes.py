@@ -45,8 +45,19 @@ def _template(hou, spec):
             kwargs['naming_scheme'] = hou.parmNamingScheme.RGBA
         return hou.FloatParmTemplate(name, spec.label, len(spec.default), **kwargs)
     if spec.kind == 'float':
-        return hou.FloatParmTemplate(name, spec.label, 1, default_value=(spec.default,), help=help_text)
+        kwargs = {'default_value': (spec.default,), 'help': help_text}
+        if spec.name == 'radius':
+            kwargs.update(script_callback="import physvfx_houdini.nodes as n; n.activate_sphere_radius_override(kwargs['node'])",
+                          script_callback_language=hou.scriptLanguage.Python)
+        return hou.FloatParmTemplate(name, spec.label, 1, **kwargs)
     raise ValueError('Unknown parameter type: ' + spec.kind)
+
+
+def activate_sphere_radius_override(node):
+    """Editing Radius on a sphere should immediately change the field."""
+    kind, override = node.parm('pv_kind'), node.parm('pv_override_radius')
+    if kind is not None and override is not None and kind.evalAsString() == 'isf_sphere':
+        override.set(True)
 
 
 def read_values(node, kind):
@@ -169,6 +180,13 @@ def refresh_selected_nodes():
                 existing.setMenuItems(tuple(x[0] for x in spec.choices))
                 existing.setMenuLabels(tuple(x[1] for x in spec.choices))
                 group.replace('pv_' + spec.name, existing)
+                menus_changed = True
+        if kind == 'field':
+            radius = group.find('pv_radius')
+            if radius is not None and not radius.scriptCallback():
+                radius.setScriptCallback("import physvfx_houdini.nodes as n; n.activate_sphere_radius_override(kwargs['node'])")
+                radius.setScriptCallbackLanguage(hou.scriptLanguage.Python)
+                group.replace('pv_radius', radius)
                 menus_changed = True
         code_parm = node.parm('python')
         if code_parm is not None and not code_parm.evalAsString().strip():

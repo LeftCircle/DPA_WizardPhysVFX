@@ -22,6 +22,13 @@ except ImportError:
 
 @unittest.skipUnless(HAS_USD, 'requires OpenUSD Python bindings')
 class RealUSDTests(unittest.TestCase):
+    def test_sphere_radius_override_updates_native_viewport_prim(self):
+        stage = Usd.Stage.CreateInMemory()
+        v = defaults('field'); v.update(override_radius=True, radius=2.5)
+        prim = author(stage, 'field', v)
+        self.assertEqual(UsdGeom.Sphere(prim).GetRadiusAttr().Get(), 2.5)
+        self.assertEqual(prim.GetAttribute('pbvfx:radius').Get(), 2.5)
+        self.assertFalse(stage.GetPrimAtPath('/World/PhysVFXField/__physvfx_surface'))
     def test_real_usd_types_relationships_and_layer_composition(self):
         with tempfile.TemporaryDirectory() as tmp:
             layout_path = Path(tmp) / 'layout.usda'

@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, _resolve_renderer_python, _monitor_render_worker, _renderer_environment, _cancel_previous_render, _render_jobs
+from physvfx_houdini.nodes import cook, create_node, read_values, refresh_selected_nodes, save_shadow_cache, render_and_view, activate_sphere_radius_override, _resolve_renderer_python, _monitor_render_worker, _renderer_environment, _cancel_previous_render, _render_jobs
 from test_authoring_fake import Stage, fake_pxr
 from physvfx_houdini.schema import defaults
 
@@ -23,6 +23,9 @@ class Template:
     def menuItems(self): return self.kwargs.get('menu_items', ())
     def setMenuItems(self, items): self.kwargs['menu_items'] = items
     def setMenuLabels(self, labels): self.kwargs['menu_labels'] = labels
+    def scriptCallback(self): return self.kwargs.get('script_callback', '')
+    def setScriptCallback(self, callback): self.kwargs['script_callback'] = callback
+    def setScriptCallbackLanguage(self, language): self.kwargs['script_callback_language'] = language
 
 
 class Folder(Template):
@@ -112,6 +115,23 @@ def make_hou():
 
 
 class NodeConstructionTests(unittest.TestCase):
+    def test_editing_sphere_radius_enables_override(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('field', network=network)
+            activate_sphere_radius_override(node)
+            self.assertTrue(node.parm('pv_override_radius').eval())
+            node.parm('pv_override_radius').set(False)
+            node.parm('pv_kind').set('isf_box')
+            activate_sphere_radius_override(node)
+            self.assertFalse(node.parm('pv_override_radius').eval())
+            radius = node.groups.find('pv_radius')
+            self.assertIn('activate_sphere_radius_override', radius.scriptCallback())
+            radius.setScriptCallback('')
+            hou.selectedNodes = lambda: [node]
+            refresh_selected_nodes()
+            self.assertIn('activate_sphere_radius_override', node.groups.find('pv_radius').scriptCallback())
+
     def test_each_shelf_tool_creates_parameterized_python_lop(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):

@@ -226,6 +226,10 @@ def author_field(stage, v):
         _attr(prim, 'isf_type', 'Token', kind)
         if (kind == 'isf_sphere' and v['override_radius']) or kind in ('isf_box', 'isf_cylinder'):
             _float(prim, 'radius', _positive(v['radius'], 'Radius'))
+        if kind == 'isf_sphere' and v['override_radius'] and prim.IsA(UsdGeom.Sphere):
+            # The native USD sphere is the viewport geometry. Keep it in sync
+            # with the PhysVFX override instead of drawing two different spheres.
+            UsdGeom.Sphere(prim).CreateRadiusAttr().Set(float(v['radius']))
         if kind in ('isf_torus', 'isf_ellipse'):
             for name in ('majorRadius', 'minorRadius'):
                 _float(prim, name, _positive(v[name], name))

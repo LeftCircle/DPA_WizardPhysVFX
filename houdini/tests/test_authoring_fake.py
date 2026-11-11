@@ -231,6 +231,26 @@ class AuthoringContractTests(unittest.TestCase):
         self.assertLess(extent[0], 0.65)
         self.assertGreater(extent[1], 2.2)
 
+    def test_analytic_surface_tracks_each_shape_parameter(self):
+        cases = {
+            'isf_torus': [('majorRadius', 1.8), ('minorRadius', 0.65), ('normal', (1, 0, 0))],
+            'isf_cone': [('height', 3.0), ('theta', 0.8), ('normal', (1, 0, 0))],
+            'isf_box': [('radius', 1.8), ('roundingExponent', 1)],
+            'isf_ellipse': [('majorRadius', 1.8), ('minorRadius', 0.65), ('normal', (1, 0, 0))],
+            'isf_cylinder': [('radius', 1.8), ('height', 3.0), ('normal', (1, 0, 0))],
+        }
+        for kind, changes in cases.items():
+            for key, value in changes:
+                with self.subTest(kind=kind, parameter=key):
+                    stage = Stage()
+                    v = defaults('field'); v.update(kind=kind, path='/World/Shape')
+                    author(stage, 'field', v)
+                    surface = stage.GetPrimAtPath('/World/Shape/__physvfx_surface')
+                    before = list(surface.attrs['Points'].value)
+                    v[key] = value
+                    author(stage, 'field', v)
+                    self.assertNotEqual(before, surface.attrs['Points'].value)
+
     def test_reserved_preview_path_is_not_overwritten(self):
         self.stage.DefinePrim('/World/Thing/__physvfx_bounds', 'Mesh')
         v = defaults('field'); v.update(path='/World/Thing', kind='isf_torus')
@@ -254,6 +274,11 @@ class AuthoringContractTests(unittest.TestCase):
         self.assertNotIn('pbvfx:radius', prim.attrs)
         v.update(override_radius=True, radius=2.5)
         self.assertEqual(author(self.stage, 'field', v).attrs['pbvfx:radius'].value, 2.5)
+        self.assertEqual(prim.attrs['Radius'].value, 2.5)
+        self.assertIsNone(self.stage.GetPrimAtPath('/World/PhysVFXField/__physvfx_surface'))
+        v['radius'] = 4
+        author(self.stage, 'field', v)
+        self.assertEqual(prim.attrs['Radius'].value, 4)
 
     def test_operations_write_ordered_relationships_and_correct_parameters(self):
         a = defaults('field'); a.update(path='/World/A')

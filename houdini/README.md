@@ -109,6 +109,15 @@ must have finite bounds. To stamp an unbounded plane, enable **Stamp Field** and
 from rendering. To add the new menu option to existing Field nodes, select them
 and use **Refresh PhysVFX Parameters** after restarting Houdini.
 
+Analytic surface previews update when their applicable radius, height, normal,
+cone angle, or box rounding controls change. Editing a sphere's **Radius** in
+the UI enables **Override Sphere Radius**; disabling the override instead uses
+the upstream USD sphere radius. Existing field nodes need **Refresh PhysVFX
+Parameters** for this automatic toggle. The native USD sphere is updated when
+overridden so its viewport surface and PhysVFX field agree. **Mesh Half Width**
+controls the level-set voxelization band; it does not alter the source mesh's
+viewport surface. Analytic proxy meshes are low-resolution layout previews.
+
 The wisp tab provides `wispDots`, `wispDensity`, `wispClump`, `wispPscale`,
 `wispSeed`, `wispMin`, `wispMax`, `wispDisplacement`, and both sets of
 `wispNoise1*` / `wispNoise2*` roughness, octaves, translation, frequency, and

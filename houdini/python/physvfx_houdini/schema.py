@@ -123,8 +123,9 @@ PARAMETERS = {
         )),
         ("Analytic and Mesh", (
             P("override_radius", "Override Sphere Radius", "toggle", False,
-              "If off, a USD Sphere uses its native radius; other prims use 1."),
-            P("radius", "Radius", "float", 1.0),
+              "If off, a USD Sphere uses its native radius; other prims use 1. Editing Radius enables this for spheres."),
+            P("radius", "Radius", "float", 1.0,
+              "Sphere, box or cylinder radius. Editing a sphere's Radius enables its override."),
             P("majorRadius", "Major Radius", "float", 1.0),
             P("minorRadius", "Minor Radius", "float", 0.4),
             P("height", "Height", "float", 2.0),
@@ -133,7 +134,8 @@ PARAMETERS = {
               "Local-space half size of the viewport grid; does not limit the plane."),
             P("theta", "Cone Angle (radians)", "float", 0.5),
             P("roundingExponent", "Box Rounding Exponent", "int", 3),
-            P("meshHalfWidth", "Mesh Half Width (voxels)", "float", 3.0),
+            P("meshHalfWidth", "Mesh Half Width (voxels)", "float", 3.0,
+              "Controls mesh-to-level-set voxelization band, not the source mesh viewport shape."),
         ) + BOUNDS),
         ("Wisp", (
             P("wispDots", "Dot Count", "int", 100000),

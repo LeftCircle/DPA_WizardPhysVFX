@@ -20,6 +20,38 @@ struct FSVals{
     Vector translation = {0, 0, 0};
     float freq = 1.0;
     float fjump = 1.0;
+
+    // operator overload for +/- itself and multiplication by a scalar
+    FSVals operator+(const FSVals& other) const {
+        return FSVals(
+            r + other.r,
+            octaves + other.octaves,
+            translation + other.translation,
+            freq + other.freq,
+            fjump + other.fjump
+        );
+    }
+
+    FSVals operator-(const FSVals& other) const {
+        return FSVals(
+            r - other.r,
+            octaves - other.octaves,
+            translation - other.translation,
+            freq - other.freq,
+            fjump - other.fjump
+        );
+    }
+    
+    template <typename T>
+    FSVals operator*(T scalar) const {
+        return FSVals(
+            r * scalar,
+            octaves * scalar,
+            translation * scalar,
+            freq * scalar,
+            fjump * scalar
+        );
+    }
 };
 
 template <typename T, typename Vec, typename Func>

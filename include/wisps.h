@@ -8,9 +8,22 @@
 #include "noise_fields.h"
 #include "openvdb_helpers.h"
 
+
 namespace lux{
 
-struct CoordinateSys{
+class CoordinateSys{
+public:
+    CoordinateSys() = default;
+    CoordinateSys(const Vector& _t, const Vector& _n, const Vector& _b) : 
+        t(_t), n(_n), b(_b) {}
+        
+    Vector that() const { return t / t.magnitude(); }
+    Vector nhat() const { return n / n.magnitude(); }
+    Vector bhat() const { return b / b.magnitude(); }
+    
+    CoordinateSys lerp(const CoordinateSys& other, float t) const;
+
+public:
     Vector t = {1, 0, 0};
     Vector n = {0, 1, 0};
     Vector b = {0, 0, 1};
@@ -107,7 +120,7 @@ private:
 };
 
 
-auto wisp_uniform(
+inline decltype(auto) wisp_uniform(
     size_t n_dots,
     float dens,
     float clump,
@@ -148,6 +161,39 @@ auto wisp_uniform(
 };
 
 
+class WispGuideParticle{
+public:
+    WispGuideParticle(
+        size_t n_dots,
+        float dens,
+        float clump,
+        float pscale,
+        FSVals fspn1,
+        FSVals fspn2,
+        Vector displacement,
+        Vector location,
+        CoordinateSys axis,
+        int id
+    ) : n_dots(n_dots), dens(dens), clump(clump), pscale(pscale), fspn1(fspn1), fspn2(fspn2),
+        displacement(displacement), location(location), axis(axis), id(id) {};
+
+    size_t n_dots;
+    float dens;
+    float clump;
+    float pscale;
+    FSVals fspn1;
+    FSVals fspn2;
+    Vector displacement;
+    Vector location;
+    CoordinateSys axis;
+    int id;
+};
+
+WispGuideParticle interpolate(
+    const WispGuideParticle& a,
+    const WispGuideParticle& b,
+    float t
+);
 
 
 

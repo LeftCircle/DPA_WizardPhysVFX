@@ -143,6 +143,34 @@ def fixture():
 
 
 class TranslationTests(unittest.TestCase):
+    def test_point_noise_stamps_per_point_and_uses_defaults(self):
+        module, _, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = [p for p in stage.Traverse() if p.path != '/sphere']
+        point = Prim(None, '/points', {'points': [(0, 0, 0), (2, 0, 0)],
+                     'pbvfx:field_type': 'point_noise', 'primvars:radius': [1, 2],
+                     'primvars:density': [3, 4]})
+        stage.Traverse = lambda: original + [point]
+        class Primvar:
+            def __init__(self, data): self.data = data
+            def __bool__(self): return self.data is not None
+            def HasAuthoredValue(self): return self.data is not None
+            def ComputeFlattened(self): return self.data
+        module.UsdGeom.PrimvarsAPI = lambda prim: SimpleNamespace(
+            GetPrimvar=lambda name: Primvar(prim.values.get('primvars:' + name)))
+        calls = []
+        module.fx.FloatGrid = lambda *args: SimpleNamespace(voxel_size=args[0])
+        module.fx.stamp_point_noise = lambda *args: calls.append(args)
+        module.fx.make_grid_field = lambda grid: ('point_grid', grid)
+        scene = module.load_scene('scene')
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][2:5], (0.5, .5, 3.0))
+        self.assertEqual(calls[1][2:5], (1.0, .5, 4.0))
+        self.assertTrue(scene.objects[0].is_density)
+        point.values['primvars:fade'] = [0, 1]
+        with self.assertRaises(ValueError):
+            module.load_scene('scene')
+
     def test_scene_parameters_and_render_dispatch(self):
         module, _, _, _, _, calls = fixture()
         scene = module.load_scene('scene.usda')

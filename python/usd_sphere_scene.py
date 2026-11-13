@@ -743,6 +743,55 @@ FIELD_OPERATIONS.update({
 })
 
 
+def get_point_noise_object(prim, cache, settings, unit_scale, stamp_cache=None, preview=None):
+    """Stamp an imported USD point cloud into one additive smoke grid."""
+    path = str(prim.GetPath())
+    attr = prim.GetAttribute('points')
+    points = attr.Get() if attr else None
+    if points is None or len(points) == 0:
+        raise ValueError(f'{path}: point noise requires nonempty USD Points')
+    matrix = cache.GetLocalToWorldTransform(prim)
+    _, axes = _basis(matrix, path, uniform=True)
+    scale = axes[0] * unit_scale
+    centers = [_vec(matrix.Transform(Gf.Vec3d(*p)), unit_scale) for p in points]
+    names = ('radius', 'fade', 'density', 'frequency', 'roughness', 'octaves', 'frequency_jump')
+    defaults = (1.0, .5, 1.0, 1.0, .5, 3.0, 2.0)
+    values = {}
+    for name, default in zip(names, defaults):
+        default = _custom(prim, 'pointNoise_' + name, default)
+        pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar(name)
+        data = pv.ComputeFlattened() if pv and pv.HasAuthoredValue() else None
+        if data is None:
+            data = [default] * len(centers)
+        elif isinstance(data, (float, int)):
+            data = [data] * len(centers)
+        else:
+            data = list(data)
+            if len(data) == 1:
+                data *= len(centers)
+            if len(data) != len(centers):
+                raise ValueError(f'{path}: primvars:{name} must have one value per point')
+        values[name] = [_positive(x, f'{path}: {name}', allow_zero=name in ('density', 'roughness')) for x in data]
+    radii = [r * scale for r in values['radius']]
+    lo = tuple(min(p[i] - r for p, r in zip(centers, radii)) for i in range(3))
+    hi = tuple(max(p[i] + r for p, r in zip(centers, radii)) for i in range(3))
+    voxel = _object_voxel_size(prim, settings, unit_scale, preview.voxel_multiplier if preview else 1.0)
+    grid = stamp_cache.load(prim) if stamp_cache else None
+    hit = grid is not None
+    if not hit:
+        grid = fx.FloatGrid(voxel, 0.0)
+        with _timed(f'Stamp point noise {path} ({len(centers)} points)'):
+            for i, center in enumerate(centers):
+                fx.stamp_point_noise(grid, _fxvec(center), radii[i], values['fade'][i],
+                                     values['density'][i], values['roughness'][i], values['octaves'][i],
+                                     values['frequency'][i] / scale, values['frequency_jump'][i])
+        if stamp_cache:
+            stamp_cache.save(prim, grid)
+    rgb = _display_color(prim)
+    return SceneObject(path, 'point_noise', fx.make_grid_field(grid), fx.Color(*rgb, 0), rgb,
+                       bounds_min=lo, bounds_max=hi, stamped=True, is_density=True, cache_hit=hit)
+
+
 def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="cache", preview=None):
     """Resolve geometry and operation relationships; return unconsumed roots."""
     scale = _unit_scale(stage, volume_meters_per_unit)
@@ -754,7 +803,7 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
     objects = {}
     # Reject ambiguous names before creating any cache files.
     for prim in prims:
-        if (_custom(prim, 'field_type', None) in ('wisp', 'wisp_spline') or
+        if (_custom(prim, 'field_type', None) in ('wisp', 'wisp_spline', 'point_noise') or
             prim.IsA(UsdGeom.Mesh) or _custom(prim, 'stamp', False) is True):
             stamp_cache.path_for(prim)
     for prim in prims:
@@ -764,11 +813,13 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
             operations[path] = (prim, str(op))
             continue
         field_type = _custom(prim, 'field_type', None)
-        if field_type is not None and field_type not in ('wisp', 'wisp_spline', 'plane', 'infinite_plane'):
+        if field_type is not None and field_type not in ('wisp', 'wisp_spline', 'point_noise', 'plane', 'infinite_plane'):
             raise ValueError(f'{path}: unknown pbvfx:field_type {field_type!r}')
         if field_type and _custom(prim, 'isf_type', None) is not None:
             raise ValueError(f'{path}: choose either pbvfx:field_type or pbvfx:isf_type')
-        if field_type == 'wisp':
+        if field_type == 'point_noise':
+            item = get_point_noise_object(prim, cache, settings, scale, stamp_cache, preview)
+        elif field_type == 'wisp':
             item = get_wisp_object(prim, cache, settings, scale, stamp_cache, preview)
         elif field_type == 'wisp_spline':
             item = get_wisp_spline_object(prim, cache, settings, scale, stamp_cache, preview)

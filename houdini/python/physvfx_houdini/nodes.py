@@ -8,6 +8,7 @@ from .spline_channels import CHANNELS, resolve_guides
 _render_jobs = {}
 
 NODE_LABELS = {
+    'point_noise': 'PhysVFX Point Noise',
     'render_view': 'PhysVFX Render and View',
     'shadow_cache': 'PhysVFX Shadow Cache',
     'shadow_region': 'PhysVFX Shadow Region',

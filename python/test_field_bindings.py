@@ -16,6 +16,20 @@ class FieldBindingsTests(unittest.TestCase):
         self.origin = fx.Vector(0, 0, 0)
         self.point = fx.Vector(1, 2, 3)
 
+    def test_point_noise_stamps_additively_with_bounded_falloff(self):
+        grid = fx.FloatGrid(0.2, 0)
+        args = (grid, self.origin, 1.0, .5, 2.0, .5, 3.0, 1.0, 2.0)
+        fx.stamp_point_noise(*args)
+        values = {(x,y,z): grid.get_value(x,y,z) for x in range(-5,6)
+                  for y in range(-5,6) for z in range(-5,6)}
+        self.assertTrue(any(value < 0 for value in values.values()))
+        self.assertEqual(grid.get_value(10, 0, 0), 0)
+        fx.stamp_point_noise(*args)
+        for (x,y,z), value in values.items():
+            self.assertAlmostEqual(grid.get_value(x,y,z), value * 2, places=5)
+        with self.assertRaises(ValueError):
+            fx.stamp_point_noise(grid, self.origin, 1, 0, 1, .5, 3, 1, 2)
+
     def assertVectorAlmostEqual(self, actual, expected, places=4):
         for value, target in zip(xyz(actual), expected):
             self.assertAlmostEqual(value, target, places=places)

@@ -81,6 +81,19 @@ def spline_range_fields(channels):
 
 
 PARAMETERS = {
+    'point_noise': (("Point Noise", (
+        P('path', 'Point Cloud Prim Path', 'string', '/World/points'),
+        P('radius', 'Default Radius', 'float', 1.0),
+        P('fade', 'Default Fade', 'float', 0.5),
+        P('density', 'Default Density', 'float', 1.0),
+        P('frequency', 'Default Frequency', 'float', 1.0),
+        P('roughness', 'Default Roughness', 'float', 0.5),
+        P('octaves', 'Default Octaves', 'float', 3.0),
+        P('frequency_jump', 'Default Frequency Jump', 'float', 2.0),
+        P('use_stamp_voxel_size', 'Override Density Voxel Size', 'toggle', False),
+        P('stamp_voxel_size', 'Object Density Voxel Size', 'float', 0.1),
+        P('cache_name', 'Stamp Cache Name', 'string', ''),
+    ) + COLOR),),
     'wisp_spline': (
         ('Wisp Spline', (
             P('path', 'Spline Prim Path', 'string', '/World/WispSpline'),

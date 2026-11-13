@@ -203,7 +203,7 @@ class NodeConstructionTests(unittest.TestCase):
     def test_each_shelf_tool_creates_parameterized_python_lop(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):
-            for kind in ('render_view', 'shadow_cache', 'shadow_region', 'field', 'operation', 'camera', 'light', 'settings'):
+            for kind in ('point_noise', 'render_view', 'shadow_cache', 'shadow_region', 'field', 'operation', 'camera', 'light', 'settings'):
                 with self.subTest(kind=kind):
                     node = create_node(kind, network=network)
                     self.assertEqual(read_values(node, kind), defaults(kind))
@@ -518,7 +518,7 @@ class NodeConstructionTests(unittest.TestCase):
         refs = {node.attrib['name'] for node in root.findall('./toolshelf/memberTool')}
         tools = {node.attrib['name'] for node in root.findall('./tool')}
         self.assertEqual(refs, tools)
-        self.assertEqual(len(tools), 10)
+        self.assertEqual(len(tools), 11)
         for script in root.findall('./tool/script'):
             self.assertTrue('physvfx_houdini.create_node(' in script.text or
                             'physvfx_houdini.refresh_selected_nodes()' in script.text)

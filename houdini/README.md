@@ -388,6 +388,43 @@ PhysVFX Parameters**; this restores an empty generated script without replacing
 custom code. Recreate the region node if it lacks PhysVFX node metadata.
 
 
+### Point noise stamps
+
+Import the scattered SOP points into Solaris as a USD Points prim, then select
+the scene LOP and create **PhysVFX Point Noise** from the shelf. Set **Point
+Cloud Prim Path** to that Points prim. Each point stamps fractal-sum Perlin
+noise multiplied by `make_fade_factor` into one sparse density grid. The grid
+uses the scene density voxel size unless overridden. Overlapping negative
+noise values add; positive noise is discarded because PhysVFX represents smoke
+density with negative values. All points share the same world-space noise.
+
+The node's defaults are overridden by USD point primvars named `radius`,
+`fade`, `density`, `frequency`, `roughness`, `octaves`, and `frequency_jump`.
+Each must be a float scalar, a constant one-element array, or one value per
+point; indexed primvars are flattened. Radius and frequency use local point
+cloud units. Fade, radius, frequency, octaves and frequency jump must be
+positive; density and roughness may be zero. Non-uniform point-cloud transforms
+are not supported. An optional stamp cache is explicitly named, so delete or
+rename it after changing the points or their attributes; live preview bypasses
+the cache. Rebuild the Python extension after updating.
+
+For example, before SOP Import put an Attribute Wrangle after Scatter and
+connect the volcano's polygon geometry to its second input, in the same space:
+
+```c
+float d = xyzdist(1, @P);
+float t = clamp(d / 20.0, 0.0, 1.0);
+f@radius = 1.0;
+f@fade = lerp(0.3, 2.0, t);
+f@density = lerp(3.0, 0.3, t);
+f@frequency = fit01(rand(@ptnum + 15), 0.8, 1.2);
+f@roughness = 0.5;
+f@octaves = 3.0;
+```
+
+Ensure SOP Import exports these point attributes as USD primvars. Changing the
+scatter topology may change `@ptnum` and its random values.
+
 ### Render and view
 
 Select the final scene LOP and create a **PhysVFX Render and View** node from

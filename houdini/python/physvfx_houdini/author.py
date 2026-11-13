@@ -515,7 +515,33 @@ def author_shadow_cache(stage, v):
     return prim
 
 
-AUTHORS = {'wisp_spline': author_wisp_spline, 'shadow_cache': author_shadow_cache, 'shadow_region': author_shadow_region, 'field': author_field, 'operation': author_operation, 'camera': author_camera,
+def author_point_noise(stage, v):
+    _, _, UsdGeom, _, _ = _pxr()
+    path = _path(v['path'], 'Point cloud prim path')
+    prim = stage.GetPrimAtPath(path)
+    if not prim or not prim.IsA(UsdGeom.Points):
+        raise AuthoringError(f'{path}: select an existing USD Points prim')
+    old_type = _tag(prim, 'field_type')
+    if old_type is not None and old_type != 'point_noise':
+        raise AuthoringError(f'{path}: remove incompatible upstream field tags')
+    if _tag(prim, 'isf_type') is not None or _tag(prim, 'operation') is not None:
+        raise AuthoringError(f'{path}: remove incompatible upstream field or operation tags')
+    for name in ('radius', 'fade', 'frequency', 'octaves', 'frequency_jump'):
+        _positive(v[name], name)
+    _number(v['density'], 'density', 0)
+    _number(v['roughness'], 'roughness', 0)
+    _cache_name(v['cache_name'])
+    if v['use_stamp_voxel_size']:
+        _positive(v['stamp_voxel_size'], 'Object density voxel size')
+    _attr(prim, 'field_type', 'Token', 'point_noise')
+    for name in ('radius', 'fade', 'density', 'frequency', 'roughness', 'octaves', 'frequency_jump'):
+        _attr(prim, 'pointNoise_' + name, 'Float', float(v[name]))
+    _stamp(prim, dict(v, stamp=False))
+    _display_color(prim, v)
+    return prim
+
+
+AUTHORS = {'point_noise': author_point_noise, 'wisp_spline': author_wisp_spline, 'shadow_cache': author_shadow_cache, 'shadow_region': author_shadow_region, 'field': author_field, 'operation': author_operation, 'camera': author_camera,
            'light': author_light, 'settings': author_settings}
 
 

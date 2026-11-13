@@ -4,6 +4,7 @@ ChatGPT mini
 */
 
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <optional>
@@ -458,6 +459,37 @@ PYBIND11_MODULE(physics_vfx, module)
     }, py::arg("field"), py::arg("values"), py::arg("amp_pos"), py::arg("amp_neg"),
        py::arg("gamma_pos"), py::arg("gamma_neg"), py::arg("t_point"), py::arg("iters") = 1);
     module.def("make_fade_factor", &make_fade_factor, py::arg("center"), py::arg("fade"), py::arg("radius"));
+
+    module.def("stamp_point_noise", [](FloatGridHandle& g, const Vector& center,
+            float radius, float fade, float density, float roughness, float octaves,
+            float frequency, float frequency_jump) {
+        auto valid = [](float v) { return std::isfinite(v); };
+        if (!g.grid || !valid(center.x()) || !valid(center.y()) || !valid(center.z()) ||
+            !valid(radius) || radius <= 0 || !valid(fade) || fade <= 0 ||
+            !valid(density) || density < 0 || !valid(roughness) || roughness < 0 ||
+            !valid(octaves) || octaves <= 0 || !valid(frequency) || frequency <= 0 ||
+            !valid(frequency_jump) || frequency_jump <= 0)
+            throw py::value_error("invalid noise stamp parameters");
+        const Vector extent(radius, radius, radius);
+        const auto bounds = world_space_to_bounds(center - extent, center + extent, g.grid);
+        const auto noise = make_fspn(roughness, octaves, Vector(), frequency, frequency_jump);
+        const auto falloff = make_fade_factor(center, fade, radius);
+        auto accessor = g.grid->getAccessor();
+        for (int z = bounds.min().z(); z <= bounds.max().z(); ++z)
+            for (int y = bounds.min().y(); y <= bounds.max().y(); ++y)
+                for (int x = bounds.min().x(); x <= bounds.max().x(); ++x) {
+                    const openvdb::Coord coord(x, y, z);
+                    const auto wp = g.grid->indexToWorld(coord);
+                    const Vector p(wp.x(), wp.y(), wp.z());
+                    const float weight = falloff->eval(p);
+                    if (weight <= 0) continue;
+                    // PhysVFX ray marching represents smoke density with negative values.
+                    const float contribution = std::min(noise->eval(p), 0.0f) * weight * density;
+                    if (contribution < 0) accessor.setValueOn(coord, accessor.getValue(coord) + contribution);
+                }
+    }, py::arg("grid"), py::arg("center"), py::arg("radius"), py::arg("fade"),
+       py::arg("density"), py::arg("roughness"), py::arg("octaves"),
+       py::arg("frequency"), py::arg("frequency_jump"));
 
     // Preserve the shorter existing names while exposing the C++ names too.
     module.attr("make_plane") = module.attr("plane");

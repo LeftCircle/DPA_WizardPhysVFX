@@ -61,6 +61,7 @@ class Schema:
 
 class Sphere(Schema): type_name = 'Sphere'
 class Mesh(Schema): type_name = 'Mesh'
+class Points(Schema): type_name = 'Points'
 class Gprim(Schema): pass
 class BasisCurves(Schema):
     type_name = 'BasisCurves'
@@ -91,7 +92,7 @@ def fake_pxr():
     pxr.Sdf = types.SimpleNamespace(Path=Path, ValueTypeNames=names)
     pxr.Gf = types.SimpleNamespace(Vec3f=lambda *x: tuple(x), Vec3d=lambda *x: tuple(x), Vec2f=lambda *x: tuple(x), Vec2i=lambda *x: tuple(x))
     pxr.Usd = types.SimpleNamespace(TimeCode=types.SimpleNamespace(Default=lambda: None))
-    pxr.UsdGeom = types.SimpleNamespace(Sphere=Sphere, Mesh=Mesh, Gprim=Gprim, Camera=Camera,
+    pxr.UsdGeom = types.SimpleNamespace(Sphere=Sphere, Mesh=Mesh, Points=Points, Gprim=Gprim, Camera=Camera,
                                        BasisCurves=BasisCurves, Imageable=Imageable, XformCache=XformCache,
                                        PrimvarsAPI=PrimvarsAPI,
                                        Tokens=types.SimpleNamespace(constant='constant', perspective='perspective',
@@ -107,6 +108,16 @@ class AuthoringContractTests(unittest.TestCase):
         self.modules.start()
         self.addCleanup(self.modules.stop)
         self.stage = Stage()
+
+    def test_point_noise_authors_defaults_on_existing_points(self):
+        prim = self.stage.DefinePrim('/World/points', 'Points')
+        values = defaults('point_noise')
+        author(self.stage, 'point_noise', values)
+        self.assertEqual(prim.attrs['pbvfx:field_type'].Get(), 'point_noise')
+        self.assertEqual(prim.attrs['pbvfx:pointNoise_fade'].Get(), .5)
+        values['fade'] = 0
+        with self.assertRaises(AuthoringError):
+            author(self.stage, 'point_noise', values)
 
     def test_interfaces_cover_all_loader_fields(self):
         field = defaults('field')

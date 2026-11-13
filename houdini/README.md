@@ -60,6 +60,13 @@ be used on a configured Python LOP if you want a local, shareable HDA; the
    Position Offset ramp displaces the base guide path; the displayed line shows
    its sampled result. Ramp positions are normalized by distance along the base
    connected segments before offsets are applied.
+   **Shape Ramp Sample Offset** shifts and wraps all ramps in the Spline Shape
+   tab (including Position Offset), but not the Spline Noise tabs. Zero and
+   whole-number offsets preserve the original ramp, including its endpoint;
+   0.5 makes the first guide sample the midpoint. Animate the offset to move
+   the pattern; negative and greater-than-one values wrap too. For a seamless
+   loop, match each ramp's start and end values and slopes. The control is
+   ignored in Per Guide mode. Refresh existing Wisp Spline nodes to add it.
 4. **Ramp Samples per Segment** controls how many intervals capture the ramp
    between artist guides (default 8). The resolved guide values are written to
    USD, so Houdini itself is not needed by the renderer. For direct values

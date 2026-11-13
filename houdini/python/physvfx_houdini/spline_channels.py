@@ -55,6 +55,11 @@ def resolve_guides(values):
     if mode == 'manual':
         samples = [dict(g, position=pos) for g, pos in zip(guides, positions)]
     else:
+        offset = float(values.get('shape_ramp_offset', 0.0))
+        if not math.isfinite(offset):
+            raise ValueError('Shape ramp sample offset must be finite')
+        offset %= 1.0
+        shape_names = {name for name, _, _, _ in CHANNELS[:8]}
         divisions = values['ramp_subdivisions']
         if isinstance(divisions, bool) or not isinstance(divisions, int) or not 1 <= divisions <= 64:
             raise ValueError('Ramp samples per segment must be between 1 and 64')
@@ -67,7 +72,8 @@ def resolve_guides(values):
                 item = {'position': pos}
                 for name, _, kind, _ in CHANNELS:
                     ramp = values.get('splineRamp_' + name)
-                    blend = float(ramp.lookup(t) if ramp is not None else t)
+                    sample_t = (t + offset) % 1.0 if offset and name in shape_names else t
+                    blend = float(ramp.lookup(sample_t) if ramp is not None else sample_t)
                     if not math.isfinite(blend):
                         raise ValueError(f'{name} ramp returned a non-finite value')
                     blend = max(0.0, min(1.0, blend))

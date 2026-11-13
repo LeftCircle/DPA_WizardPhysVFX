@@ -173,6 +173,31 @@ class AuthoringContractTests(unittest.TestCase):
         self.assertEqual(samples[0]['density'], 0)
         self.assertEqual(samples[-1]['density'], 4)
 
+    def test_shape_ramp_offset_wraps_without_changing_endpoints_at_full_cycles(self):
+        from physvfx_houdini.spline_channels import default_guides, resolve_guides
+        v = defaults('wisp_spline'); v['guides'] = default_guides()
+        v.update(ramp_subdivisions=4, splineMin_density=0, splineMax_density=1,
+                 splineMin_noise1Frequency=1, splineMax_noise1Frequency=2)
+        v['splineRamp_density'] = types.SimpleNamespace(lookup=lambda t: t)
+        v['splineRamp_noise1Frequency'] = types.SimpleNamespace(lookup=lambda t: t)
+        def sampled(offset):
+            v['shape_ramp_offset'] = offset
+            return resolve_guides(v)[1]
+        baseline = sampled(0)
+        self.assertEqual([s['density'] for s in baseline], [0, .25, .5, .75, 1])
+        for offset in (1, -1, 2):
+            self.assertEqual([s['density'] for s in sampled(offset)], [s['density'] for s in baseline])
+        shifted = sampled(.5)
+        self.assertEqual([s['density'] for s in shifted], [.5, .75, 0, .25, .5])
+        self.assertEqual([s['noise1Frequency'] for s in shifted], [s['noise1Frequency'] for s in baseline])
+        self.assertEqual([s['density'] for s in sampled(-.5)], [s['density'] for s in shifted])
+        v['mode'] = 'manual'
+        v['shape_ramp_offset'] = float('nan')
+        self.assertEqual(len(resolve_guides(v)[1]), 2)
+        v['mode'] = 'ramp'
+        with self.assertRaisesRegex(ValueError, 'offset'):
+            resolve_guides(v)
+
     def test_spline_position_ramp_moves_path_and_markers(self):
         from physvfx_houdini.spline_channels import default_guides
         v = defaults('wisp_spline'); v['guides'] = default_guides()

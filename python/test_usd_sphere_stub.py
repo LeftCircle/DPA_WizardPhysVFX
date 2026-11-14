@@ -171,7 +171,21 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][2:5], (0.5, .5, 3.0))
         self.assertEqual(calls[1][2:5], (1.0, .5, 4.0))
+        self.assertEqual(calls[0][-2:], ((0, 0, 0), 0))
         self.assertTrue(scene.objects[0].is_density)
+        point.values['pbvfx:pointNoise_noise_seed'] = -9
+        point.values['pbvfx:pointNoise_noise_translation'] = (2, 4, 6)
+        calls.clear(); module.load_scene('scene')
+        self.assertEqual(calls[0][-2:], ((1, 2, 3), -9))
+        point.values['primvars:noise_seed'] = [11, 12]
+        point.values['primvars:noise_translation'] = [(4, 0, 0), (0, 6, 0)]
+        calls.clear(); module.load_scene('scene')
+        self.assertEqual(calls[0][-2:], ((2, 0, 0), 11))
+        self.assertEqual(calls[1][-2:], ((0, 3, 0), 12))
+        point.values['primvars:noise_seed'] = [1.5, 2]
+        with self.assertRaisesRegex(ValueError, 'noise_seed'):
+            module.load_scene('scene')
+        del point.values['primvars:noise_seed']
         point.values['primvars:fade'] = [0, 1]
         with self.assertRaises(ValueError):
             module.load_scene('scene')

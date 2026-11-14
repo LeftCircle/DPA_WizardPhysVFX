@@ -51,6 +51,18 @@ class FieldBindingsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fx.stamp_point_noise(grid, self.origin, 1, 0, 1, .5, 3, 1, 2)
 
+    def test_point_noise_seed_and_translation_are_deterministic(self):
+        def stamp(*extra):
+            grid = fx.FloatGrid(.2, 0)
+            fx.stamp_point_noise(grid, self.origin, 2, .5, 1, .5, 3, 1, 2, *extra)
+            return [grid.get_value(x, y, z) for x in range(-8, 9)
+                    for y in range(-8, 9) for z in range(-8, 9)]
+        original = stamp()
+        self.assertEqual(original, stamp(self.origin, 0))
+        self.assertEqual(stamp(self.origin, 42), stamp(self.origin, 42))
+        self.assertNotEqual(original, stamp(self.origin, 42))
+        self.assertNotEqual(original, stamp(fx.Vector(.7, .2, -.3), 0))
+
     def assertVectorAlmostEqual(self, actual, expected, places=4):
         for value, target in zip(xyz(actual), expected):
             self.assertAlmostEqual(value, target, places=places)

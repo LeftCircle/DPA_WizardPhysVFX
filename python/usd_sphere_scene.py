@@ -809,6 +809,32 @@ def get_point_noise_object(prim, cache, settings, unit_scale, stamp_cache=None, 
             if len(data) != len(centers):
                 raise ValueError(f'{path}: primvars:{name} must have one value per point')
         values[name] = [_positive(x, f'{path}: {name}', allow_zero=name in ('density', 'roughness')) for x in data]
+    def primvar_values(name, default, vector=False):
+        pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar(name)
+        data = pv.ComputeFlattened() if pv and pv.HasAuthoredValue() else None
+        if data is None:
+            return [default] * len(centers)
+        if not vector and isinstance(data, (float, int)):
+            return [data] * len(centers)
+        data = list(data)
+        if vector and len(data) == 3 and all(isinstance(x, (float, int)) for x in data):
+            return [data] * len(centers)
+        if len(data) == 1:
+            data *= len(centers)
+        if len(data) != len(centers):
+            raise ValueError(f'{path}: primvars:{name} must have one value per point')
+        return data
+    seeds = primvar_values('noise_seed', _custom(prim, 'pointNoise_noise_seed', 0))
+    for seed in seeds:
+        if isinstance(seed, bool) or not isinstance(seed, (float, int)) or not math.isfinite(seed) or int(seed) != seed or not -2147483648 <= seed <= 2147483647:
+            raise ValueError(f'{path}: noise_seed must be a 32-bit integer')
+    translation_default = _custom(prim, 'pointNoise_noise_translation', (0, 0, 0))
+    translations = [_vec(v) for v in primvar_values('noise_translation', translation_default, vector=True)]
+    if any(len(v) != 3 for v in translations):
+        raise ValueError(f'{path}: noise_translation must have three components per point')
+    # Primvar translations are local vectors; carry rotation and scale into
+    # the world-space grid, just as for centers and frequencies.
+    translations = [_vec(matrix.TransformDir(Gf.Vec3d(*v)), unit_scale) for v in translations]
     radii = [r * scale for r in values['radius']]
     lo = tuple(min(p[i] - r for p, r in zip(centers, radii)) for i in range(3))
     hi = tuple(max(p[i] + r for p, r in zip(centers, radii)) for i in range(3))
@@ -821,7 +847,8 @@ def get_point_noise_object(prim, cache, settings, unit_scale, stamp_cache=None, 
             for i, center in enumerate(centers):
                 fx.stamp_point_noise(grid, _fxvec(center), radii[i], values['fade'][i],
                                      values['density'][i], values['roughness'][i], values['octaves'][i],
-                                     values['frequency'][i] / scale, values['frequency_jump'][i])
+                                     values['frequency'][i] / scale, values['frequency_jump'][i],
+                                     _fxvec(translations[i]), int(seeds[i]))
         if stamp_cache:
             stamp_cache.save(prim, grid)
     rgb = _display_color(prim)

@@ -437,6 +437,16 @@ are not supported. An optional stamp cache is explicitly named, so delete or
 rename it after changing the points or their attributes; live preview bypasses
 the cache. Rebuild the Python extension after updating.
 
+**Default Noise Seed** selects a deterministic offset in the fixed Perlin noise
+field (it does not change the permutation); seed 0 retains the original result.
+**Default Noise Translation** moves the noise pattern in point-cloud local
+units without moving the point locations or the stamp bounds. Positive
+translation moves the pattern in the positive direction. Optional per-point
+`noise_seed` (integer) and `noise_translation` (vector) primvars override the
+node defaults. The translation is converted from local to renderer space.
+Negative seeds are supported. Refresh existing Point Noise nodes to expose the
+controls, and clear or rename named caches after changing either value.
+
 For example, before SOP Import put an Attribute Wrangle after Scatter and
 connect the volcano's polygon geometry to its second input, in the same space:
 

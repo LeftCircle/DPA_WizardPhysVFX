@@ -6,6 +6,7 @@ ChatGPT mini
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -496,17 +497,28 @@ PYBIND11_MODULE(physics_vfx, module)
 
     module.def("stamp_point_noise", [](FloatGridHandle& g, const Vector& center,
             float radius, float fade, float density, float roughness, float octaves,
-            float frequency, float frequency_jump) {
+            float frequency, float frequency_jump, const Vector& translation, int seed) {
         auto valid = [](float v) { return std::isfinite(v); };
         if (!g.grid || !valid(center.x()) || !valid(center.y()) || !valid(center.z()) ||
             !valid(radius) || radius <= 0 || !valid(fade) || fade <= 0 ||
             !valid(density) || density < 0 || !valid(roughness) || roughness < 0 ||
             !valid(octaves) || octaves <= 0 || !valid(frequency) || frequency <= 0 ||
-            !valid(frequency_jump) || frequency_jump <= 0)
+            !valid(frequency_jump) || frequency_jump <= 0 ||
+            !valid(translation.x()) || !valid(translation.y()) || !valid(translation.z()))
             throw py::value_error("invalid noise stamp parameters");
         const Vector extent(radius, radius, radius);
         const auto bounds = world_space_to_bounds(center - extent, center + extent, g.grid);
-        const auto noise = make_fspn(roughness, octaves, Vector(), frequency, frequency_jump);
+        // The Perlin permutation is fixed. A seed deterministically chooses a
+        // noise-space translation; seed zero preserves the historical field.
+        auto hash = [](std::uint32_t x) {
+            x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15;
+            x *= 0x846ca68bu; x ^= x >> 16; return x;
+        };
+        auto component = [&](std::uint32_t salt) {
+            return (double(hash(static_cast<std::uint32_t>(seed) ^ salt) & 0xffffu) / 512.0 - 64.0) / frequency;
+        };
+        const Vector seed_offset = seed == 0 ? Vector() : Vector(component(0x243f6a88u), component(0x85a308d3u), component(0x13198a2eu));
+        const auto noise = make_fspn(roughness, octaves, translation + seed_offset, frequency, frequency_jump);
         const auto falloff = make_fade_factor(center, fade, radius);
         auto accessor = g.grid->getAccessor();
         for (int z = bounds.min().z(); z <= bounds.max().z(); ++z)
@@ -523,7 +535,8 @@ PYBIND11_MODULE(physics_vfx, module)
                 }
     }, py::arg("grid"), py::arg("center"), py::arg("radius"), py::arg("fade"),
        py::arg("density"), py::arg("roughness"), py::arg("octaves"),
-       py::arg("frequency"), py::arg("frequency_jump"));
+       py::arg("frequency"), py::arg("frequency_jump"),
+       py::arg("translation") = Vector(), py::arg("seed") = 0);
 
     // Preserve the shorter existing names while exposing the C++ names too.
     module.attr("make_plane") = module.attr("plane");

@@ -115,6 +115,13 @@ class AuthoringContractTests(unittest.TestCase):
         author(self.stage, 'point_noise', values)
         self.assertEqual(prim.attrs['pbvfx:field_type'].Get(), 'point_noise')
         self.assertEqual(prim.attrs['pbvfx:pointNoise_fade'].Get(), .5)
+        self.assertEqual(prim.attrs['pbvfx:pointNoise_noise_seed'].Get(), 0)
+        self.assertEqual(prim.attrs['pbvfx:pointNoise_noise_translation'].Get(), (0, 0, 0))
+        values['noise_seed'] = -42
+        values['noise_translation'] = (1, 2, -3)
+        author(self.stage, 'point_noise', values)
+        self.assertEqual(prim.attrs['pbvfx:pointNoise_noise_seed'].Get(), -42)
+        self.assertEqual(prim.attrs['pbvfx:pointNoise_noise_translation'].Get(), (1, 2, -3))
         values['fade'] = 0
         with self.assertRaises(AuthoringError):
             author(self.stage, 'point_noise', values)

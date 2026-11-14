@@ -139,6 +139,21 @@ def make_hou():
 
 
 class NodeConstructionTests(unittest.TestCase):
+    def test_refresh_adds_point_noise_seed_and_translation(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('point_noise', network=network)
+            for folder in node.groups.folders:
+                folder.kwargs['parm_templates'] = tuple(p for p in folder.parmTemplates()
+                    if p.name() not in ('pv_noise_seed', 'pv_noise_translation'))
+            node.values.pop('pv_noise_seed')
+            node.tuples.pop('pv_noise_translation')
+            node.parm('pv_radius').set(2.5)
+            hou.selectedNodes = lambda: [node]
+            refresh_selected_nodes()
+            self.assertEqual(node.parm('pv_radius').eval(), 2.5)
+            self.assertEqual(node.parm('pv_noise_seed').eval(), 0)
+            self.assertEqual(node.parmTuple('pv_noise_translation').eval(), (0, 0, 0))
     def test_refresh_adds_color_to_existing_spline_guides(self):
         hou = make_hou(); network = Network('lop')
         with patch.dict(sys.modules, {'hou': hou}):

@@ -530,12 +530,16 @@ def author_point_noise(stage, v):
         _positive(v[name], name)
     _number(v['density'], 'density', 0)
     _number(v['roughness'], 'roughness', 0)
+    _integer(v['noise_seed'], 'Noise seed', -2147483648)
+    translation = _vec(v['noise_translation'], 3, 'Noise translation')
     _cache_name(v['cache_name'])
     if v['use_stamp_voxel_size']:
         _positive(v['stamp_voxel_size'], 'Object density voxel size')
     _attr(prim, 'field_type', 'Token', 'point_noise')
     for name in ('radius', 'fade', 'density', 'frequency', 'roughness', 'octaves', 'frequency_jump'):
         _attr(prim, 'pointNoise_' + name, 'Float', float(v[name]))
+    _attr(prim, 'pointNoise_noise_seed', 'Int', v['noise_seed'])
+    _float3(prim, 'pointNoise_noise_translation', translation)
     _stamp(prim, dict(v, stamp=False))
     _display_color(prim, v)
     return prim

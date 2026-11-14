@@ -73,8 +73,9 @@ def noise_fields(prefix, label):
 def spline_range_fields(channels):
     result = []
     for name, label, kind, default in channels:
-        result.extend((P('splineMin_' + name, label + ' Minimum', kind, default),
-                       P('splineMax_' + name, label + ' Maximum', kind, default),
+        field_kind = 'color' if name == 'color' else kind
+        result.extend((P('splineMin_' + name, label + ' Minimum', field_kind, default),
+                       P('splineMax_' + name, label + ' Maximum', field_kind, default),
                        P('splineRamp_' + name, label + ' Ramp', 'ramp', None,
                          'Ramp values from 0 to 1 mix the minimum and maximum along arc length.')))
     return tuple(result)
@@ -111,9 +112,9 @@ PARAMETERS = {
               'Subdivide straight segments to capture curved ramps between guides.'),
         ) + COLOR + (P('guides', 'Guide Particles', 'guides', None),)),
         ('Spline Shape', (P('shape_ramp_offset', 'Shape Ramp Sample Offset', 'float', 0.0,
-                            'Wrap the sampling position for all Spline Shape ramps; 1 is one full cycle. Ignored in Per Guide mode.'),) + spline_range_fields(CHANNELS[:8])),
+                            'Wrap the sampling position for all Spline Shape ramps; 1 is one full cycle. Ignored in Per Guide mode.'),) + spline_range_fields(CHANNELS[:8] + CHANNELS[-1:])),
         ('Spline Noise 1', spline_range_fields(CHANNELS[8:13])),
-        ('Spline Noise 2', spline_range_fields(CHANNELS[13:])),
+        ('Spline Noise 2', spline_range_fields(CHANNELS[13:-1])),
     ),
     "render_view": (("Render and View", (
         P("usd_path", "USD Save Path", "string", "$HIP/outputs/physvfx_scene.usda",

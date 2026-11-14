@@ -185,6 +185,30 @@ PYBIND11_MODULE(physics_vfx, module)
         return funcfield<float>(std::move(eval), std::move(grad));
     }, py::arg("field"), py::arg("origin"), py::arg("x_axis"), py::arg("y_axis"), py::arg("z_axis"));
 
+    module.def("affine_transform_color_field", [](const vspc& field, const Vector& origin,
+        const Vector& x_axis, const Vector& y_axis, const Vector& z_axis) {
+        if (!field) throw py::value_error("field cannot be null");
+        return funcfield<Color>([field, origin, x_axis, y_axis, z_axis](const Vector& p) {
+            return field->eval(origin + p.X() * x_axis + p.Y() * y_axis + p.Z() * z_axis);
+        });
+    });
+
+    module.def("make_density_weighted_color_field", [](const std::vector<vspf>& density,
+                                                       const std::vector<vspc>& colors) {
+        if (density.size() != colors.size()) throw py::value_error("one color field is required per density field");
+        for (size_t i = 0; i < density.size(); ++i)
+            if (!density[i] || !colors[i]) throw py::value_error("fields cannot be null");
+        return funcfield<Color>([density, colors](const Vector& p) {
+            Color sum(0, 0, 0, 0);
+            double weight = 0;
+            for (size_t i = 0; i < density.size(); ++i) {
+                const double w = std::max(0.0, -double(density[i]->eval(p)));
+                if (w > 0) { sum += colors[i]->eval(p) * w; weight += w; }
+            }
+            return weight > 0 ? sum / weight : Color(0, 0, 0, 0);
+        });
+    });
+
     module.def("make_scene_color_field", [](const std::vector<vspf>& fields, const std::vector<Color>& colors) {
         if (fields.size() != colors.size()) throw py::value_error("one color is required for each field");
         for (const auto& field : fields) if (!field) throw py::value_error("fields cannot be null");
@@ -258,14 +282,17 @@ PYBIND11_MODULE(physics_vfx, module)
             py::arg("maximum") = 1.f)
         .def("stamp", [](UniformWisp& w, FloatGridHandle& grid) {
             w.stamp_wisp_dots<float>(grid.grid);
-        }, py::arg("grid"));
+        }, py::arg("grid"))
+        .def("stamp_colored", [](UniformWisp& w, FloatGridHandle& density, ColorGridHandle& color) {
+            w.stamp_wisp_dots_colored(density.grid, color.grid);
+        }, py::arg("density_grid"), py::arg("color_accumulator"));
     module.attr("wisp_uniform") = module.attr("UniformWisp");
 
     py::class_<WispGuideParticle>(module, "WispGuideParticle")
-        .def(py::init<size_t, float, float, float, FSVals, FSVals, Vector, Vector, CoordinateSys, int>(),
+        .def(py::init<size_t, float, float, float, FSVals, FSVals, Vector, Vector, CoordinateSys, int, Color>(),
              py::arg("n_dots"), py::arg("density"), py::arg("clump"), py::arg("pscale"),
              py::arg("noise1"), py::arg("noise2"), py::arg("displacement"),
-             py::arg("location"), py::arg("axis"), py::arg("id"));
+             py::arg("location"), py::arg("axis"), py::arg("id"), py::arg("color") = Color(1, 1, 1, 1));
     py::class_<WispSpline>(module, "WispSpline")
         .def(py::init<const std::vector<WispGuideParticle>&, size_t, float, int>(),
              py::arg("guides"), py::arg("n_dots"), py::arg("voxel_size"), py::arg("seed"))
@@ -273,6 +300,10 @@ PYBIND11_MODULE(physics_vfx, module)
              py::call_guard<py::gil_scoped_release>())
         .def("stamp_grid", [](WispSpline& spline) {
             return FloatGridHandle{spline.stamp_wisp_spline_grid()};
+        }, py::call_guard<py::gil_scoped_release>())
+        .def("stamp_colored", [](WispSpline& spline) {
+            auto grids = spline.stamp_wisp_spline_colored();
+            return std::make_pair(FloatGridHandle{grids.first}, ColorGridHandle{grids.second});
         }, py::call_guard<py::gil_scoped_release>());
 
     py::class_<ColorGridHandle>(module, "ColorGrid")
@@ -289,6 +320,9 @@ PYBIND11_MODULE(physics_vfx, module)
         .def("get_value", [](const ColorGridHandle& g, int x, int y, int z) {
             return GridTypes<Color>::from_grid(g.grid->getConstAccessor().getValue(openvdb::Coord(x, y, z)));
         });
+    module.def("normalize_wisp_colors", [](const FloatGridHandle& density, ColorGridHandle& color) {
+        normalize_wisp_color_grid(density.grid, color.grid);
+    }, py::arg("density_grid"), py::arg("color_accumulator"));
     module.def("make_grid_field", [](const FloatGridHandle& g) { return make_grid_field<float>(g.grid); }, py::arg("grid"));
     module.def("make_grid_field", [](const ColorGridHandle& g) { return make_grid_field<Color>(g.grid); }, py::arg("grid"));
 
@@ -615,6 +649,31 @@ PYBIND11_MODULE(physics_vfx, module)
         if (!grid) throw std::runtime_error("Expected a float grid in cache: " + filename);
         return FloatGridHandle{grid};
     }, py::arg("filename"));
+    module.def("save_wisp_grids", [](const FloatGridHandle& density, const ColorGridHandle& color, const std::string& filename) {
+        density.grid->setName("density");
+        color.grid->setName("color");
+        openvdb::io::File file(filename);
+        openvdb::GridPtrVec grids{density.grid, color.grid};
+        file.write(grids);
+        file.close();
+    });
+    module.def("load_wisp_grids", [](const std::string& filename) {
+        openvdb::initialize();
+        openvdb::io::File file(filename);
+        file.open();
+        auto grids = file.getGrids();
+        file.close();
+        if (!grids || grids->size() != 2) throw std::runtime_error("Wisp cache does not contain density and color grids");
+        openvdb::FloatGrid::Ptr density;
+        openvdb::Vec3SGrid::Ptr color;
+        for (const auto& grid : *grids) {
+            if (grid->getName() == "density") density = openvdb::gridPtrCast<openvdb::FloatGrid>(grid);
+            if (grid->getName() == "color") color = openvdb::gridPtrCast<openvdb::Vec3SGrid>(grid);
+        }
+        if (!density || !color || density->transform() != color->transform())
+            throw std::runtime_error("Invalid wisp density/color cache");
+        return std::make_pair(FloatGridHandle{density}, ColorGridHandle{color});
+    });
     module.def("save_to_disk", [](const FloatGridHandle& grid, std::string filename) { save_to_disk(grid.grid, filename); }, py::arg("grid"), py::arg("filename"));
     module.def("save_to_disk", [](const ColorGridHandle& grid, std::string filename) { save_to_disk(grid.grid, filename); }, py::arg("grid"), py::arg("filename"));
     module.def("trilinear_deposit", [](FloatGridHandle& grid, const Vector& position, float value) {

@@ -20,6 +20,9 @@ class Template:
     def __init__(self, name, label, *args, **kwargs):
         self._name, self._label, self.args, self.kwargs = name, label, args, kwargs
     def label(self): return self._label
+    def name(self): return self._name
+    def parmTemplates(self): return self.kwargs.get('parm_templates', ())
+    def addParmTemplate(self, item): self.kwargs['parm_templates'] = tuple(self.parmTemplates()) + (item,)
     def menuItems(self): return self.kwargs.get('menu_items', ())
     def setMenuItems(self, items): self.kwargs['menu_items'] = items
     def setMenuLabels(self, labels): self.kwargs['menu_labels'] = labels
@@ -136,6 +139,20 @@ def make_hou():
 
 
 class NodeConstructionTests(unittest.TestCase):
+    def test_refresh_adds_color_to_existing_spline_guides(self):
+        hou = make_hou(); network = Network('lop')
+        with patch.dict(sys.modules, {'hou': hou}):
+            node = create_node('wisp_spline', network=network)
+            guides = node.groups.find('pv_guides')
+            guides.kwargs['parm_templates'] = tuple(p for p in guides.parmTemplates() if p.name() != 'pv_guide_color#')
+            node.tuples.pop('pv_guide_color1')
+            node.tuples.pop('pv_guide_color2')
+            node.parm('pv_splineMin_density').set(2.5)
+            hou.selectedNodes = lambda: [node]
+            refresh_selected_nodes()
+            self.assertEqual(node.parm('pv_splineMin_density').eval(), 2.5)
+            self.assertEqual(node.parmTuple('pv_guide_color1').eval(), (1, 1, 1))
+            self.assertEqual(node.parmTuple('pv_guide_color2').eval(), (1, 1, 1))
     def test_frame_snapshot_bakes_sampled_values_and_disables_shadow_cache(self):
         from physvfx_houdini.nodes import _frame_snapshot
         class Attribute:

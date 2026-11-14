@@ -226,6 +226,7 @@ class SceneObject:
     stamped: bool = False
     is_density: bool = False
     cache_hit: bool = False
+    color_field: object = None
 
 
 def _display_color(prim):
@@ -250,7 +251,7 @@ def _normal(prim):
     return _fxvec(tuple(x / length for x in v))
 
 
-def _world_to_local(field, matrix, scale, path):
+def _world_to_local(field, matrix, scale, path, color=False):
     determinant = float(matrix.GetDeterminant())
     if not math.isfinite(determinant) or abs(determinant) < 1e-12:
         raise ValueError(f'{path}: singular or non-finite transform')
@@ -262,7 +263,8 @@ def _world_to_local(field, matrix, scale, path):
         axes.append(tuple(p[i] - origin[i] for i in range(3)))
     if not all(math.isfinite(x) for vec in (origin, *axes) for x in vec):
         raise ValueError(f'{path}: singular or non-finite transform')
-    return fx.affine_transform_field(field, _fxvec(origin), *(_fxvec(x) for x in axes))
+    transform = fx.affine_transform_color_field if color else fx.affine_transform_field
+    return transform(field, _fxvec(origin), *(_fxvec(x) for x in axes))
 
 
 ISF_TYPES = ('isf_sphere', 'isf_torus', 'isf_cone', 'isf_box', 'isf_icosahedron',
@@ -391,6 +393,28 @@ class StampCache:
             if os.path.exists(temp):
                 os.unlink(temp)
 
+    def load_wisp(self, prim):
+        path = self.path_for(prim)
+        if path is None or not path.exists(): return None
+        try:
+            return fx.load_wisp_grids(str(path))
+        except RuntimeError as exc:
+            if 'Wisp cache does not contain density and color grids' not in str(exc): raise
+            _progress(f'Legacy density-only wisp cache {path}; rebuilding')
+            return None
+
+    def save_wisp(self, prim, density, color):
+        path = self.path_for(prim)
+        if path is None: return
+        self.directory.mkdir(parents=True, exist_ok=True)
+        fd, temp = tempfile.mkstemp(prefix='.stamp-', suffix='.vdb', dir=str(self.directory))
+        os.close(fd)
+        try:
+            fx.save_wisp_grids(density, color, temp)
+            os.replace(temp, path)
+        finally:
+            if os.path.exists(temp): os.unlink(temp)
+
 
 def _include_grid_bounds(item, grid):
     bounds = grid.active_world_bounds()
@@ -514,18 +538,22 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None, preview
     seed = int(_custom(prim, 'wispSeed', 1))
     displacement = _fxvec(_vec(_custom(prim, 'wispDisplacement', (1, 1, 1))))
     voxel = _object_voxel_size(prim, settings, unit_scale, preview.voxel_multiplier if preview else 1.0) / unit_scale
-    grid = stamp_cache.load(prim) if stamp_cache else None
-    hit = grid is not None
+    rgb = _display_color(prim)
+    grids = stamp_cache.load_wisp(prim) if stamp_cache else None
+    hit = grids is not None
     if not hit:
         grid = fx.FloatGrid(voxel, 0.0)
+        color_grid = fx.ColorGrid(voxel)
         wisp = fx.wisp_uniform(dots, -density, clump, pscale, noise('wispNoise1'),
                                noise('wispNoise2'), displacement, fx.Vector(0, 0, 0),
-                               fx.CoordinateSys(), seed, fx.Color(1, 1, 1, 1), minimum, maximum)
+                               fx.CoordinateSys(), seed, fx.Color(*rgb, 1), minimum, maximum)
         with _timed(f'Stamp wisp {prim.GetPath()} ({dots} dots)'):
-            wisp.stamp(grid)
+            wisp.stamp_colored(grid, color_grid)
+            fx.normalize_wisp_colors(grid, color_grid)
         if stamp_cache:
-            stamp_cache.save(prim, grid)
+            stamp_cache.save_wisp(prim, grid, color_grid)
     else:
+        grid, color_grid = grids
         voxel = grid.voxel_size
     bounds = grid.active_world_bounds()
     if bounds is None:
@@ -539,9 +567,10 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None, preview
     bounds_min = tuple(min(p[i] for p in corners) for i in range(3))
     bounds_max = tuple(max(p[i] for p in corners) for i in range(3))
     field = _world_to_local(fx.make_grid_field(grid), matrix, unit_scale, prim.GetPath())
-    rgb = _display_color(prim)
+    color_field = _world_to_local(fx.make_grid_field(color_grid), matrix, unit_scale, prim.GetPath(), color=True)
     return SceneObject(str(prim.GetPath()), 'wisp', field, fx.Color(*rgb, 0), rgb,
-                       bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit)
+                       bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit,
+                       color_field=color_field)
 
 
 def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, preview=None):
@@ -561,14 +590,18 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, 
     scalar_names = ('density', 'clump', 'pscale', 'noise1Roughness', 'noise1Octaves',
                     'noise1Frequency', 'noise1FrequencyJump', 'noise2Roughness',
                     'noise2Octaves', 'noise2Frequency', 'noise2FrequencyJump')
-    vector_names = ('displacement', 'axisT', 'axisN', 'axisB', 'noise1Translation', 'noise2Translation')
+    vector_names = ('displacement', 'axisT', 'axisN', 'axisB', 'noise1Translation', 'noise2Translation', 'color')
     channels = {}
     for name in scalar_names + vector_names:
         arr = _custom(prim, 'spline_' + name, None)
+        if name == 'color' and arr is None:
+            arr = [(1, 1, 1)] * len(positions)
         if arr is None or len(arr) != len(positions):
             raise ValueError(f'{path}: spline_{name} must have one value per position')
         if name in vector_names:
             channels[name] = [_vec(v) for v in arr]
+            if name == 'color' and any(min(v) < 0 for v in channels[name]):
+                raise ValueError(f'{path}: spline_color must be non-negative')
             if name.startswith('axis') and any(_length(v) <= 1e-10 for v in channels[name]):
                 raise ValueError(f'{path}: spline_{name} must be nonzero')
         else:
@@ -581,8 +614,9 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, 
                         preview.voxel_multiplier / preview.voxel_multiplier)
         channels['density'] = [x * compensation for x in channels['density']]
     voxel = _object_voxel_size(prim, settings, unit_scale, preview.voxel_multiplier if preview else 1.0) / unit_scale
-    grid = stamp_cache.load(prim) if stamp_cache else None
-    hit = grid is not None
+    rgb = _display_color(prim)
+    grids = stamp_cache.load_wisp(prim) if stamp_cache else None
+    hit = grids is not None
     if not hit:
         guides = []
         for i, pos in enumerate(positions):
@@ -594,12 +628,14 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, 
             axis.t, axis.n, axis.b = (_fxvec(channels[key][i]) for key in ('axisT', 'axisN', 'axisB'))
             guides.append(fx.WispGuideParticle(1, -channels['density'][i], channels['clump'][i],
                           channels['pscale'][i], noise('noise1'), noise('noise2'),
-                          _fxvec(channels['displacement'][i]), _fxvec(pos), axis, i))
+                          _fxvec(channels['displacement'][i]), _fxvec(pos), axis, i,
+                          fx.Color(*(rgb[j] * channels['color'][i][j] for j in range(3)), 1)))
         with _timed(f'Stamp wisp spline {path} ({dots} dots)'):
-            grid = fx.WispSpline(guides, dots, voxel, seed).stamp_grid()
+            grid, color_grid = fx.WispSpline(guides, dots, voxel, seed).stamp_colored()
         if stamp_cache:
-            stamp_cache.save(prim, grid)
+            stamp_cache.save_wisp(prim, grid, color_grid)
     else:
+        grid, color_grid = grids
         voxel = grid.voxel_size
     bounds = grid.active_world_bounds()
     if bounds is None:
@@ -612,9 +648,10 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, 
     bounds_min = tuple(min(p[i] for p in corners) for i in range(3))
     bounds_max = tuple(max(p[i] for p in corners) for i in range(3))
     field = _world_to_local(fx.make_grid_field(grid), matrix, unit_scale, prim.GetPath())
-    rgb = _display_color(prim)
+    color_field = _world_to_local(fx.make_grid_field(color_grid), matrix, unit_scale, prim.GetPath(), color=True)
     return SceneObject(path, 'wisp_spline', field, fx.Color(*rgb, 0), rgb,
-                       bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit)
+                       bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit,
+                       color_field=color_field)
 
 
 def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_scale=1.0, preview=None):
@@ -1100,7 +1137,11 @@ def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache", preview=
     density = densities[0]
     for field in densities[1:]:
         density = fx.union_fields(density, field)
-    color = fx.make_scene_color_field([obj.field for obj in objects], [obj.color for obj in objects])
+    if any(obj.color_field is not None for obj in objects):
+        color = fx.make_density_weighted_color_field(densities,
+            [obj.color_field if obj.color_field is not None else fx.make_constant(obj.color) for obj in objects])
+    else:
+        color = fx.make_scene_color_field([obj.field for obj in objects], [obj.color for obj in objects])
     padding = 3 * max(settings.density_voxel_size, settings.color_voxel_size, settings.shadow_voxel_size)
     bounds_min = tuple(min(obj.bounds_min[i] for obj in objects) - padding for i in range(3))
     bounds_max = tuple(max(obj.bounds_max[i] for obj in objects) + padding for i in range(3))

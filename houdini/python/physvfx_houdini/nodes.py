@@ -271,6 +271,13 @@ def refresh_selected_nodes():
                 radius.setScriptCallbackLanguage(hou.scriptLanguage.Python)
                 group.replace('pv_radius', radius)
                 menus_changed = True
+        if kind == 'wisp_spline':
+            guides = group.find('pv_guides')
+            if guides is not None and not any(p.name() == 'pv_guide_color#' for p in guides.parmTemplates()):
+                guides.addParmTemplate(hou.FloatParmTemplate('pv_guide_color#', 'Color Tint', 3,
+                    default_value=(1.0, 1.0, 1.0), help='Used in Per Guide mode.'))
+                group.replace('pv_guides', guides)
+                menus_changed = True
         code_parm = node.parm('python')
         if code_parm is not None and not code_parm.evalAsString().strip():
             code_parm.set("import hou\nfrom physvfx_houdini import cook\ncook(hou.pwd(), %r)\n" % kind)

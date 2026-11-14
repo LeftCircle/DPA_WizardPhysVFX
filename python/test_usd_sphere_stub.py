@@ -120,10 +120,15 @@ def fixture():
     fx.mask = lambda field: ('mask', field)
     fx.negate = lambda field: ('negate', field)
     fx.make_scene_color_field = lambda fields, colors: ('color', fields, colors)
+    fx.make_constant = lambda color: ('constant_color', color)
+    fx.make_density_weighted_color_field = lambda fields, colors: ('weighted_color', fields, colors)
+    fx.ColorGrid = lambda voxel: ('color_grid', voxel)
+    fx.normalize_wisp_colors = lambda density, color: None
     fx.union_fields = lambda a, b: ('union', a, b)
     for name in ('isf_torus', 'isf_cone', 'isf_box', 'isf_icosahedron', 'isf_steiner_patch', 'isf_ellipse', 'isf_cylinder'):
         setattr(fx, name, lambda *args, name=name: (name, args))
     fx.affine_transform_field = lambda field, origin, x, y, z: ('transformed', field, origin, x, y, z)
+    fx.affine_transform_color_field = fx.affine_transform_field
     fx.RenderSettings = SettingsObject
     fx.render_usd_scene = lambda *args: calls.append(args)
     pxr = ModuleType('pxr')
@@ -226,14 +231,14 @@ class TranslationTests(unittest.TestCase):
             def active_world_bounds(self): return ((-1,-1,-1), (1,1,1))
         class Wisp:
             def __init__(self, *args): calls.append(args)
-            def stamp(self, grid): pass
+            def stamp_colored(self, grid, color): pass
         module.fx.FloatGrid = Grid
         module.fx.wisp_uniform = Wisp
         module.fx.FSVals = lambda *args: args
         module.fx.CoordinateSys = lambda: 'axes'
         module.fx.make_grid_field = lambda grid: ('grid', grid)
-        module.fx.load_float_grid = lambda path: self.fail('live preview loaded a stamp cache')
-        module.fx.save_to_disk = lambda *args: self.fail('live preview wrote a stamp cache')
+        module.fx.load_wisp_grids = lambda path: self.fail('live preview loaded a stamp cache')
+        module.fx.save_wisp_grids = lambda *args: self.fail('live preview wrote a stamp cache')
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / 'old.vdb').write_text('old cache')
             module.load_scene('scene', cache_dir=tmp, preview=module.PreviewQuality(.5, 2, 2, .25))
@@ -465,6 +470,7 @@ class TranslationTests(unittest.TestCase):
                    'axisB': (0,0,1), 'noise1Translation': (0,0,0), 'noise2Translation': (0,0,0)}
         attrs.update({'pbvfx:spline_' + k: v for k,v in scalars.items()})
         attrs.update({'pbvfx:spline_' + k: (v,v) for k,v in vectors.items()})
+        attrs['pbvfx:spline_color'] = [(1, 0, 0), (0, 0, 1)]
         prim = Prim(None, '/spline', attrs, Matrix((2, 0, 0)))
         stage.Traverse = lambda: original + [prim]
         class Grid:
@@ -473,7 +479,7 @@ class TranslationTests(unittest.TestCase):
         calls = []
         class Spline:
             def __init__(self, guides, dots, voxel, seed): calls.append((guides, dots, voxel, seed))
-            def stamp_grid(self): return Grid()
+            def stamp_colored(self): return Grid(), ('color_grid',)
         module.fx.FSVals = lambda *args: args
         module.fx.CoordinateSys = lambda: SimpleNamespace()
         module.fx.WispGuideParticle = lambda *args: args
@@ -484,12 +490,15 @@ class TranslationTests(unittest.TestCase):
         self.assertTrue(item.is_density and item.stamped)
         self.assertEqual(calls[0][0][0][1], -1)
         self.assertEqual(calls[0][0][1][1], -2)
+        self.assertEqual((calls[0][0][0][-1].red, calls[0][0][0][-1].blue), (1, 0))
+        self.assertEqual((calls[0][0][1][-1].red, calls[0][0][1][-1].blue), (0, 1))
         self.assertEqual(calls[0][1:], (50, 0.2, 7))
         self.assertEqual(scene.density, item.field)
+        self.assertEqual(scene.color[0], 'weighted_color')
         self.assertLess(item.bounds_min[0], 1)
         attrs['pbvfx:cacheName'] = 'spline_test'
-        module.fx.save_to_disk = lambda grid, path: Path(path).write_text('grid')
-        module.fx.load_float_grid = lambda path: Grid()
+        module.fx.save_wisp_grids = lambda grid, color, path: Path(path).write_text('grid')
+        module.fx.load_wisp_grids = lambda path: (Grid(), ('color_grid',))
         with tempfile.TemporaryDirectory() as tmp:
             module.load_scene('scene', cache_dir=tmp)
             self.assertTrue((Path(tmp) / 'spline_test.vdb').exists())
@@ -521,7 +530,7 @@ class TranslationTests(unittest.TestCase):
             def active_world_bounds(self): return ((-1, -1, -1), (1, 1, 1))
         class Wisp:
             def __init__(self, *args): calls.append(('wisp', args))
-            def stamp(self, grid): calls.append(('stamp', grid))
+            def stamp_colored(self, grid, color): calls.append(('stamp', grid))
         module.fx.FloatGrid, module.fx.wisp_uniform = Grid, Wisp
         module.fx.FSVals = lambda *args: args
         module.fx.CoordinateSys = lambda: 'axes'
@@ -758,19 +767,34 @@ class TranslationTests(unittest.TestCase):
             def active_world_bounds(self): return ((-1, -1, -1), (1, 1, 1))
         class Wisp:
             def __init__(self, *args): events.append('construct')
-            def stamp(self, grid): events.append('stamp')
+            def stamp_colored(self, grid, color): events.append('stamp')
         module.fx.FloatGrid, module.fx.wisp_uniform = Grid, Wisp
         module.fx.FSVals = lambda *args: args
         module.fx.CoordinateSys = lambda: 'axes'
         module.fx.make_grid_field = lambda value: ('grid', value)
-        module.fx.save_to_disk = lambda value, path: (events.append('save'), Path(path).write_text('grid'))
-        module.fx.load_float_grid = lambda path: events.append('load') or Grid()
+        module.fx.save_wisp_grids = lambda value, color, path: (events.append('save'), Path(path).write_text('grid'))
+        module.fx.load_wisp_grids = lambda path: events.append('load') or (Grid(), ('color_grid',))
         with tempfile.TemporaryDirectory() as tmp:
             first = module.load_scene('scene', cache_dir=tmp)
             second = module.load_scene('scene', cache_dir=tmp)
             self.assertFalse(first.objects[1].cache_hit)
             self.assertTrue(second.objects[1].cache_hit)
             self.assertEqual(events, ['construct', 'stamp', 'save', 'load'])
+
+    def test_density_only_wisp_cache_is_rebuilt_as_paired_cache(self):
+        module, _, _, _, _, _ = fixture()
+        prim = Prim(None, '/wisp', {'pbvfx:cacheName': 'old_wisp'})
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = module.StampCache(tmp)
+            target = Path(tmp) / 'old_wisp.vdb'
+            target.write_text('old density')
+            def old_cache(path):
+                raise RuntimeError('Wisp cache does not contain density and color grids')
+            module.fx.load_wisp_grids = old_cache
+            self.assertIsNone(cache.load_wisp(prim))
+            module.fx.save_wisp_grids = lambda density, color, path: Path(path).write_text('paired')
+            cache.save_wisp(prim, 'density', 'color')
+            self.assertEqual(target.read_text(), 'paired')
 
     def test_named_mesh_cache_skips_voxelization(self):
         module, _, _, _, _, _ = fixture()

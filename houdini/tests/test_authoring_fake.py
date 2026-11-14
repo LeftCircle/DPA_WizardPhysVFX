@@ -119,6 +119,18 @@ class AuthoringContractTests(unittest.TestCase):
         with self.assertRaises(AuthoringError):
             author(self.stage, 'point_noise', values)
 
+    def test_wisp_spline_authors_per_guide_color_tints(self):
+        from physvfx_houdini.spline_channels import default_guides
+        values = defaults('wisp_spline')
+        values['guides'] = default_guides()
+        values['ramp_subdivisions'] = 2
+        values['splineMin_color'] = (1, 0, 0)
+        values['splineMax_color'] = (0, 0, 1)
+        values['splineRamp_color'] = types.SimpleNamespace(lookup=lambda t: t)
+        prim = author(self.stage, 'wisp_spline', values)
+        colors = prim.attrs['pbvfx:spline_color'].Get()
+        self.assertEqual(colors, [(1, 0, 0), (.5, 0, .5), (0, 0, 1)])
+
     def test_interfaces_cover_all_loader_fields(self):
         field = defaults('field')
         self.assertEqual({x[0] for x in FIELD_KINDS}, {

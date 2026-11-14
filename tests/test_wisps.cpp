@@ -6,6 +6,34 @@
 
 namespace lux{
 
+TEST_CASE("wisp color grid normalizes overlapping signed density") {
+    const FSVals noise(0.5, 2, Vector(0,0,0), 1, 2);
+    auto density = create_float_grid(0.25f, 0);
+    auto color = create_color_grid(0.25f);
+    auto red = wisp_uniform(500, -1, 1, 1, noise, noise, Vector(1,1,1),
+                            Vector(0,0,0), CoordinateSys(), 17, Color(1,0,0,1));
+    auto green = wisp_uniform(500, -3, 1, 1, noise, noise, Vector(1,1,1),
+                              Vector(0,0,0), CoordinateSys(), 17, Color(0,1,0,1));
+    red.stamp_wisp_dots_colored(density, color);
+    green.stamp_wisp_dots_colored(density, color);
+    REQUIRE(density->activeVoxelCount() > 0);
+    normalize_wisp_color_grid(density, color);
+    for (auto it = color->cbeginValueOn(); it; ++it) {
+        const auto c = *it;
+        REQUIRE(c.x() == Catch::Approx(0.25f).margin(1e-5));
+        REQUIRE(c.y() == Catch::Approx(0.75f).margin(1e-5));
+        REQUIRE(c.z() == Catch::Approx(0.0f).margin(1e-5));
+    }
+    REQUIRE(color->tree().getValue(openvdb::Coord(999,999,999)).x() == 0);
+    auto zero_density = create_float_grid(0.25f, 0);
+    auto zero_color = create_color_grid(0.25f);
+    zero_color->getAccessor().setValueOn(openvdb::Coord(0,0,0), openvdb::Vec3s(1,2,3));
+    normalize_wisp_color_grid(zero_density, zero_color);
+    REQUIRE(zero_color->tree().getValue(openvdb::Coord(0,0,0)).length() == 0);
+    auto bad = create_color_grid(0.5f);
+    REQUIRE_THROWS_AS(red.stamp_wisp_dots_colored(density, bad), std::invalid_argument);
+}
+
 TEST_CASE("Test wisp guide particle interp"){
     auto wisp_guide_a = WispGuideParticle(
         1,
@@ -93,6 +121,16 @@ TEST_CASE("wisp spline stamps a deterministic field and rejects coincident guide
         if (*it < 0) negative = true;
     }
     REQUIRE(negative);
+    a.color = Color(1,0,0,1);
+    b.color = Color(0,0,1,1);
+    WispSpline colored({a, b}, 500, 0.25f, 7);
+    auto pair = colored.stamp_wisp_spline_colored();
+    REQUIRE(pair.first->activeVoxelCount() == first->activeVoxelCount());
+    for (auto it = pair.second->cbeginValueOn(); it; ++it) {
+        const auto col = *it;
+        REQUIRE(col.x() + col.z() == Catch::Approx(1.0f).margin(1e-4));
+        REQUIRE(pair.first->tree().getValue(it.getCoord()) == Catch::Approx(first->tree().getValue(it.getCoord())));
+    }
     REQUIRE(spline.stamp_wisp_spline());
     REQUIRE_THROWS_AS(WispSpline({a, a}, 5, 0.25f, 1), std::invalid_argument);
     REQUIRE_THROWS_AS(WispSpline({a}, 5, 0.25f, 1), std::invalid_argument);

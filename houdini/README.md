@@ -78,6 +78,28 @@ be used on a configured Python LOP if you want a local, shareable HDA; the
    always stamp a density grid, using the render setting's density voxel size
    unless **Override Density Voxel Size** is enabled. A nonempty **Stamp Cache
    Name** saves and reuses a VDB; delete it or use a new name after any edit.
+
+Wisp dots also deposit density-weighted RGB into an aligned color grid, which
+is divided by density after stamping. The eight neighboring voxels receive the
+same trilinear weights for both grids. A regular Wisp uses its object color.
+For a Wisp Spline, **Color Tint Minimum**, **Color Tint Maximum**, and the
+**Color Tint Ramp** vary the dot color along the spline; these tints multiply
+the spline's object color. In Per Guide mode each guide has a Color Tint.
+Refresh existing spline nodes after restarting Houdini to add the controls.
+Set the object color to white to use the tint colors directly. The color grid
+uses the density grid's voxel size and stores RGB, not alpha. When different
+fields overlap, their colors are mixed according to their sampled densities.
+
+Wisp cache files now store both density and color grids. An older density-only
+wisp cache is rebuilt in place the next time it is used; explicitly named
+caches must still be cleared or renamed after changing density or color. Build
+the Python extension again after updating.
+
+For Python callers, `UniformWisp.stamp_colored(density, color)` adds weighted
+RGB and density into existing, identically transformed grids. Accumulate all
+the wisps first, then call `normalize_wisp_colors(density, color)` once. Do not
+add more wisps to that already-normalized accumulator. A spline's
+`stamp_colored()` returns its density and normalized color grids as a pair.
    The guide geometry is excluded from the renderer. Rebuild the Python extension
    and restart Houdini after pulling the spline changes.
 

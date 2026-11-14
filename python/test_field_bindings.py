@@ -16,6 +16,27 @@ class FieldBindingsTests(unittest.TestCase):
         self.origin = fx.Vector(0, 0, 0)
         self.point = fx.Vector(1, 2, 3)
 
+    def test_wisp_color_grid_is_density_weighted(self):
+        noise = fx.FSVals(.5, 2, self.origin, 1, 2)
+        density = fx.FloatGrid(.25, 0)
+        color = fx.ColorGrid(.25)
+        for value, tint in ((-1, fx.Color(1, 0, 0)), (-3, fx.Color(0, 1, 0))):
+            wisp = fx.wisp_uniform(500, value, 1, 1, noise, noise,
+                fx.Vector(1, 1, 1), self.origin, fx.CoordinateSys(), 17, tint)
+            wisp.stamp_colored(density, color)
+        fx.normalize_wisp_colors(density, color)
+        hit = False
+        for x in range(-12, 13):
+            for y in range(-12, 13):
+                for z in range(-12, 13):
+                    if density.get_value(x, y, z) < -1e-5:
+                        value = color.get_value(x, y, z)
+                        self.assertAlmostEqual(value.red, .25, places=4)
+                        self.assertAlmostEqual(value.green, .75, places=4)
+                        self.assertAlmostEqual(value.blue, 0, places=4)
+                        hit = True
+        self.assertTrue(hit)
+
     def test_point_noise_stamps_additively_with_bounded_falloff(self):
         grid = fx.FloatGrid(0.2, 0)
         args = (grid, self.origin, 1.0, .5, 2.0, .5, 3.0, 1.0, 2.0)

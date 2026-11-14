@@ -22,6 +22,7 @@ CHANNELS = (
     ('noise2Translation', 'Noise 2 Translation', 'vector', (0.0, 0.0, 0.0)),
     ('noise2Frequency', 'Noise 2 Frequency', 'float', 1.0),
     ('noise2FrequencyJump', 'Noise 2 Frequency Jump', 'float', 2.0),
+    ('color', 'Color Tint', 'vector', (1.0, 1.0, 1.0)),
 )
 
 
@@ -59,7 +60,7 @@ def resolve_guides(values):
         if not math.isfinite(offset):
             raise ValueError('Shape ramp sample offset must be finite')
         offset %= 1.0
-        shape_names = {name for name, _, _, _ in CHANNELS[:8]}
+        shape_names = {name for name, _, _, _ in (*CHANNELS[:8], CHANNELS[-1])}
         divisions = values['ramp_subdivisions']
         if isinstance(divisions, bool) or not isinstance(divisions, int) or not 1 <= divisions <= 64:
             raise ValueError('Ramp samples per segment must be between 1 and 64')
@@ -93,6 +94,8 @@ def resolve_guides(values):
                     raise ValueError(f'{name} must contain three finite components')
                 if name.startswith('axis') and sum(x*x for x in val) < 1e-20:
                     raise ValueError(f'{name} must be nonzero at every guide')
+                if name == 'color' and min(val) < 0:
+                    raise ValueError('color components must be non-negative')
             else:
                 val = float(val)
                 if not math.isfinite(val):

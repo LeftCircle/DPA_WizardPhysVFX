@@ -6,6 +6,17 @@
 
 namespace lux{
 
+void normalize_wisp_color_grid(const openvdb::FloatGrid::Ptr& density,
+                               const openvdb::Vec3SGrid::Ptr& color) {
+    if (!density || !color || density->transform() != color->transform())
+        throw std::invalid_argument("wisp density and color grids must have matching transforms");
+    auto density_accessor = density->getConstAccessor();
+    for (auto it = color->beginValueOn(); it; ++it) {
+        const float value = density_accessor.getValue(it.getCoord());
+        it.setValue(value != 0.0f ? *it / value : openvdb::Vec3s(0.0f));
+    }
+}
+
 CoordinateSys CoordinateSys::lerp(const CoordinateSys& other, float t) const {
     auto interp = [](const Vector& coord, const Vector& other_coord, float t){
         const auto cm = coord.magnitude();
@@ -48,7 +59,8 @@ WispGuideParticle interpolate(
         lerp(a.displacement, b.displacement, t),
         lerp(a.location, b.location, t),
         a.axis.lerp(b.axis, t),
-        1
+        1,
+        a.color * (1.0 - t) + b.color * t
     );
 }
 
@@ -88,9 +100,12 @@ vspf WispSpline::stamp_wisp_spline(){
     return make_grid_field<float>(stamp_wisp_spline_grid());
 }
 
-openvdb::FloatGrid::Ptr WispSpline::stamp_wisp_spline_grid(){
+openvdb::FloatGrid::Ptr WispSpline::stamp_wisp_spline_grid(openvdb::Vec3SGrid::Ptr color){
     auto grid = create_float_grid(_voxel_size, 0.0f);
+    if (color && color->transform() != grid->transform())
+        throw std::invalid_argument("wisp density and color grids must have matching transforms");
     auto accessor = grid->getAccessor();
+    auto color_accessor = color ? std::make_unique<openvdb::Vec3SGrid::Accessor>(color->getAccessor()) : nullptr;
     const auto& transform = grid->transform();
     auto rng = [
         engine = std::mt19937{static_cast<std::mt19937::result_type>(_seed)},
@@ -108,9 +123,16 @@ openvdb::FloatGrid::Ptr WispSpline::stamp_wisp_spline_grid(){
         // A small, stack-allocated value: no heap allocation.
         auto params = interpolate(_guide_particles[segment], _guide_particles[segment + 1], u);
 
-        _stamp_one_wisp_dot(params, rng, accessor, transform);
+        _stamp_one_wisp_dot(params, rng, accessor, transform, color_accessor.get());
     }
     return grid;
+}
+
+std::pair<openvdb::FloatGrid::Ptr, openvdb::Vec3SGrid::Ptr> WispSpline::stamp_wisp_spline_colored() {
+    auto color = create_color_grid(_voxel_size, openvdb::Vec3s(0.0f));
+    auto density = stamp_wisp_spline_grid(color);
+    normalize_wisp_color_grid(density, color);
+    return {density, color};
 }
 
 

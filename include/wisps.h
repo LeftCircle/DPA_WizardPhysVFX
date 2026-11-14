@@ -1,6 +1,7 @@
 #pragma once
 
 #include <random>
+#include <stdexcept>
 
 #include "Vector.h"
 #include "Color.h"
@@ -10,6 +11,12 @@
 
 
 namespace lux{
+
+// Both grids must use the same transform. Accumulate all wisps before
+// normalizing, so overlapping dots are density-weighted rather than averaged
+// independently per wisp. Signed density is supported.
+void normalize_wisp_color_grid(const openvdb::FloatGrid::Ptr& density,
+                               const openvdb::Vec3SGrid::Ptr& color);
 
 class CoordinateSys{
 public:
@@ -57,6 +64,28 @@ public:
     void stamp_wisp_dots(GridPtr<T> grid){
         auto accessor = grid->getAccessor();
         const auto transform = grid->transform();
+        _for_each_dot([&](const openvdb::Vec3s& p) {
+            trilinear_deposit(accessor, transform, p, _dens);
+        });
+    }
+
+    void stamp_wisp_dots_colored(const openvdb::FloatGrid::Ptr& density,
+                                 const openvdb::Vec3SGrid::Ptr& color) {
+        if (!density || !color || density->transform() != color->transform())
+            throw std::invalid_argument("wisp density and color grids must have matching transforms");
+        auto density_accessor = density->getAccessor();
+        auto color_accessor = color->getAccessor();
+        const auto& transform = density->transform();
+        const auto weighted = GridTypes<Color>::to_grid(_col) * _dens;
+        _for_each_dot([&](const openvdb::Vec3s& p) {
+            trilinear_deposit(density_accessor, transform, p, _dens);
+            trilinear_deposit(color_accessor, transform, p, weighted);
+        });
+    }
+
+private:
+    template <typename Callback>
+    void _for_each_dot(Callback deposit) {
         std::cout << "wisping " << _n_dots << " dots " << std::endl;
         const float hw = (_max - _min) * 0.5;
         for (int i = 0; i < _n_dots; i++){
@@ -72,10 +101,11 @@ public:
             auto d = Vector(fspn<float>(_fspn2, p3), fspn<float, Vector>(_fspn2, p3 + _displacement), fspn<float>(_fspn2, p3 - _displacement));
             auto p5 = p4 + d;
             // Now bake the value into the grid
-            trilinear_deposit(accessor, transform, {p5[0], p5[1], p5[2]}, _dens);
+            deposit(openvdb::Vec3s(static_cast<float>(p5[0]), static_cast<float>(p5[1]), static_cast<float>(p5[2])));
         }
     }
 
+public:
     // Getters and setters
     size_t get_n_dots() const { return _n_dots; }
     float get_dens() const { return _dens; }
@@ -173,9 +203,10 @@ public:
         Vector displacement,
         Vector location,
         CoordinateSys axis,
-        int id
+        int id,
+        Color color = Color(1, 1, 1, 1)
     ) : n_dots(n_dots), dens(dens), clump(clump), pscale(pscale), fspn1(fspn1), fspn2(fspn2),
-        displacement(displacement), location(location), axis(axis), id(id) {};
+        displacement(displacement), location(location), axis(axis), id(id), color(color) {};
 
     size_t n_dots;
     float dens;
@@ -187,6 +218,7 @@ public:
     Vector location;
     CoordinateSys axis;
     int id;
+    Color color;
 };
 
 WispGuideParticle interpolate(
@@ -205,7 +237,8 @@ public:
     );
 
     vspf stamp_wisp_spline();
-    openvdb::FloatGrid::Ptr stamp_wisp_spline_grid();
+    openvdb::FloatGrid::Ptr stamp_wisp_spline_grid(openvdb::Vec3SGrid::Ptr color = nullptr);
+    std::pair<openvdb::FloatGrid::Ptr, openvdb::Vec3SGrid::Ptr> stamp_wisp_spline_colored();
 
 private:
     template <typename RNGFunc>
@@ -213,7 +246,8 @@ private:
         const WispGuideParticle& params,
         RNGFunc& rng,
         openvdb::FloatGrid::Accessor& accessor,
-        const openvdb::math::Transform& transform
+        const openvdb::math::Transform& transform,
+        openvdb::Vec3SGrid::Accessor* color_accessor = nullptr
     ){
         Vector p0 = Vector(rng(-1.0, 1.0), rng(-1.0, 1.0), rng(-1.0, 1.0));
         p0 = p0 == Vector(0, 0, 0) ? Vector(rng(-1.0, 1.0), rng(-1.0, 1.0), 1) : p0;
@@ -226,8 +260,10 @@ private:
         auto d = Vector(fspn<float>(params.fspn2, p3), fspn<float, Vector>(params.fspn2, p3 + params.displacement), fspn<float>(params.fspn2, p3 - params.displacement));
         auto p5 = p4 + d;
         // Now bake the value into the grid
-        trilinear_deposit(accessor, transform,
-            openvdb::Vec3s(static_cast<float>(p5[0]), static_cast<float>(p5[1]), static_cast<float>(p5[2])), params.dens);
+        const openvdb::Vec3s p(static_cast<float>(p5[0]), static_cast<float>(p5[1]), static_cast<float>(p5[2]));
+        trilinear_deposit(accessor, transform, p, params.dens);
+        if (color_accessor)
+            trilinear_deposit(*color_accessor, transform, p, GridTypes<Color>::to_grid(params.color) * params.dens);
     }
     std::pair<int, float> _locate_segment(float t);
 

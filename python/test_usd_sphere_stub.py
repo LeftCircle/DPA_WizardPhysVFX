@@ -122,6 +122,8 @@ def fixture():
     fx.make_scene_color_field = lambda fields, colors: ('color', fields, colors)
     fx.make_constant = lambda color: ('constant_color', color)
     fx.make_density_weighted_color_field = lambda fields, colors: ('weighted_color', fields, colors)
+    fx.create_grid = lambda voxel, color: ('uniform_color_grid', voxel, color)
+    fx.make_grid_field = lambda grid: ('grid_field', grid)
     fx.ColorGrid = lambda voxel: ('color_grid', voxel)
     fx.normalize_wisp_colors = lambda density, color: None
     fx.union_fields = lambda a, b: ('union', a, b)
@@ -154,7 +156,7 @@ class TranslationTests(unittest.TestCase):
         original = [p for p in stage.Traverse() if p.path != '/sphere']
         point = Prim(None, '/points', {'points': [(0, 0, 0), (2, 0, 0)],
                      'pbvfx:field_type': 'point_noise', 'primvars:radius': [1, 2],
-                     'primvars:density': [3, 4]})
+                     'primvars:density': [3, 4], 'primvars:displayColor': [(1, 0, 0), (0, 1, 0)]})
         stage.Traverse = lambda: original + [point]
         class Primvar:
             def __init__(self, data): self.data = data
@@ -171,17 +173,30 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0][2:5], (0.5, .5, 3.0))
         self.assertEqual(calls[1][2:5], (1.0, .5, 4.0))
-        self.assertEqual(calls[0][-2:], ((0, 0, 0), 0))
+        self.assertEqual(calls[0][-4:-2], ((0, 0, 0), 0))
+        self.assertEqual((calls[0][-1].red, calls[0][-1].green), (1, 0))
+        self.assertEqual((calls[1][-1].red, calls[1][-1].green), (0, 1))
+        self.assertEqual(scene.color[0], 'weighted_color')
+        self.assertEqual(scene.color[2][0], scene.objects[0].color_field)
+        self.assertIsNotNone(scene.objects[0].color_field)
         self.assertTrue(scene.objects[0].is_density)
         point.values['pbvfx:pointNoise_noise_seed'] = -9
         point.values['pbvfx:pointNoise_noise_translation'] = (2, 4, 6)
         calls.clear(); module.load_scene('scene')
-        self.assertEqual(calls[0][-2:], ((1, 2, 3), -9))
+        self.assertEqual(calls[0][-4:-2], ((1, 2, 3), -9))
         point.values['primvars:noise_seed'] = [11, 12]
         point.values['primvars:noise_translation'] = [(4, 0, 0), (0, 6, 0)]
         calls.clear(); module.load_scene('scene')
-        self.assertEqual(calls[0][-2:], ((2, 0, 0), 11))
-        self.assertEqual(calls[1][-2:], ((0, 3, 0), 12))
+        self.assertEqual(calls[0][-4:-2], ((2, 0, 0), 11))
+        self.assertEqual(calls[1][-4:-2], ((0, 3, 0), 12))
+        point.values['primvars:color'] = [(0, 0, 1), (.5, .25, 0)]
+        calls.clear(); module.load_scene('scene')
+        self.assertEqual((calls[0][-1].red, calls[0][-1].green, calls[0][-1].blue), (0, 0, 1))
+        self.assertEqual((calls[1][-1].red, calls[1][-1].green, calls[1][-1].blue), (.5, .25, 0))
+        point.values['primvars:color'] = [(-1, 0, 0), (0, 0, 0)]
+        with self.assertRaisesRegex(ValueError, 'point colors'):
+            module.load_scene('scene')
+        del point.values['primvars:color']
         point.values['primvars:noise_seed'] = [1.5, 2]
         with self.assertRaisesRegex(ValueError, 'noise_seed'):
             module.load_scene('scene')
@@ -325,11 +340,13 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual({o.kind for o in scene.objects[:8]}, set(module.ISF_TYPES))
         self.assertTrue(all(o.rgb == (1, 0, 0) for o in scene.objects[:8]))
         self.assertTrue(all(o.kind == 'mesh' and o.rgb == (0, 1, 0) for o in scene.objects[8:]))
+        self.assertTrue(all(o.color_field[1][0] == 'uniform_color_grid' for o in scene.objects))
+        self.assertEqual(scene.color[2], [obj.color_field for obj in scene.objects])
         self.assertEqual(scene.objects[1].field[0], 'transformed')
         self.assertEqual(scene.objects[1].field[2], (-1, 0, 0))
         self.assertEqual(len(scene.lights), 1)
         self.assertEqual(scene.density[0], 'union')
-        self.assertEqual(scene.color[0], 'color')
+        self.assertEqual(scene.color[0], 'weighted_color')
         scene.render('mixed.exr')
         self.assertEqual(calls[0][0], scene.density)
         self.assertEqual(calls[0][1], scene.color)
@@ -354,7 +371,7 @@ class TranslationTests(unittest.TestCase):
         self.assertTrue(scene.objects[0].stamped)
         self.assertFalse(scene.objects[1].stamped)
         self.assertEqual(scene.sdf, ('union', scene.objects[0].field, scene.objects[1].field))
-        self.assertEqual(scene.color[1], [obj.field for obj in scene.objects])
+        self.assertEqual(scene.color[1], [('negate', ('mask', obj.field)) for obj in scene.objects])
         self.assertGreater(stamps[0][1], 0)
         sphere.values['pbvfx:stamp'] = 'yes'
         with self.assertRaisesRegex(ValueError, 'must be a bool'):
@@ -384,6 +401,31 @@ class TranslationTests(unittest.TestCase):
         cut.values['pbvfx:inputs'] = ['/sphere']
         with self.assertRaisesRegex(ValueError, 'requires 2'):
             module.load_scene('scene')
+
+    def test_stamped_union_preserves_and_stamps_input_color_fields(self):
+        module, sphere, _, _, _, _ = fixture()
+        stage = module.Usd.Stage.Open('scene')
+        original = list(stage.Traverse())
+        sphere.values['primvars:displayColor'] = [(1, 0, 0)]
+        other = Prim(Sphere, '/other', {'pbvfx:isf_type': 'isf_sphere', 'Radius': 1,
+                     'primvars:displayColor': [(0, 1, 0)]}, Matrix((8, 0, 0)))
+        op = Prim(None, '/union', {'pbvfx:operation': 'union', 'pbvfx:inputs': ['/sphere', '/other'],
+                                   'pbvfx:stamp': True})
+        stage.Traverse = lambda: original + [other, op]
+        module.fx.world_space_to_bounds = lambda lo, hi, size: (lo, hi, size)
+        module.fx.stamp_grid_parallel = lambda *args: ('density_grid', args)
+        color_stamps = []
+        module.fx.stamp_color_to_grid = lambda *args: color_stamps.append(args) or ('color_grid', args)
+        scene = module.load_scene('scene')
+        self.assertEqual(len(color_stamps), 1)
+        self.assertEqual(color_stamps[0][0][0], 'weighted_color')
+        self.assertEqual(scene.objects[0].color_field[1][0], 'color_grid')
+        self.assertEqual(len(color_stamps[0][0][2]), 2)
+        op.values['pbvfx:color'] = (.1, .2, .3)
+        color_stamps.clear()
+        scene = module.load_scene('scene')
+        self.assertEqual(color_stamps, [])
+        self.assertEqual(scene.objects[0].rgb, (.1, .2, .3))
 
     def test_arithmetic_operation_does_not_clip_to_bounds(self):
         module, sphere, _, _, _, _ = fixture()

@@ -63,6 +63,27 @@ class FieldBindingsTests(unittest.TestCase):
         self.assertNotEqual(original, stamp(self.origin, 42))
         self.assertNotEqual(original, stamp(fx.Vector(.7, .2, -.3), 0))
 
+    def test_point_noise_stamps_weighted_colors(self):
+        density, color = fx.FloatGrid(.2, 0), fx.ColorGrid(.2)
+        for strength, tint in ((1, fx.Color(1, 0, 0)), (3, fx.Color(0, 0, 1))):
+            fx.stamp_point_noise(density, self.origin, 2, .5, strength, .5, 3, 1, 2,
+                                 self.origin, 0, color, tint)
+        fx.normalize_wisp_colors(density, color)
+        hits = 0
+        for x in range(-8, 9):
+            for y in range(-8, 9):
+                for z in range(-8, 9):
+                    if density.get_value(x, y, z) < -1e-5:
+                        value = color.get_value(x, y, z)
+                        self.assertAlmostEqual(value.red, .25, places=4)
+                        self.assertAlmostEqual(value.blue, .75, places=4)
+                        self.assertAlmostEqual(value.green, 0, places=4)
+                        hits += 1
+        self.assertGreater(hits, 0)
+        with self.assertRaises(ValueError):
+            fx.stamp_point_noise(density, self.origin, 2, .5, 1, .5, 3, 1, 2,
+                                 self.origin, 0, fx.ColorGrid(.5), fx.Color(1, 0, 0))
+
     def assertVectorAlmostEqual(self, actual, expected, places=4):
         for value, target in zip(xyz(actual), expected):
             self.assertAlmostEqual(value, target, places=places)

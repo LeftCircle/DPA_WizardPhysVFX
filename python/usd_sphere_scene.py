@@ -227,6 +227,7 @@ class SceneObject:
     is_density: bool = False
     cache_hit: bool = False
     color_field: object = None
+    color_is_uniform: bool = True
 
 
 def _display_color(prim):
@@ -400,7 +401,7 @@ class StampCache:
             return fx.load_wisp_grids(str(path))
         except RuntimeError as exc:
             if 'Wisp cache does not contain density and color grids' not in str(exc): raise
-            _progress(f'Legacy density-only wisp cache {path}; rebuilding')
+            _progress(f'Legacy density-only cache {path}; rebuilding with color')
             return None
 
     def save_wisp(self, prim, density, color):
@@ -570,7 +571,7 @@ def get_wisp_object(prim, cache, settings, unit_scale, stamp_cache=None, preview
     color_field = _world_to_local(fx.make_grid_field(color_grid), matrix, unit_scale, prim.GetPath(), color=True)
     return SceneObject(str(prim.GetPath()), 'wisp', field, fx.Color(*rgb, 0), rgb,
                        bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit,
-                       color_field=color_field)
+                       color_field=color_field, color_is_uniform=False)
 
 
 def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, preview=None):
@@ -651,7 +652,7 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, 
     color_field = _world_to_local(fx.make_grid_field(color_grid), matrix, unit_scale, prim.GetPath(), color=True)
     return SceneObject(path, 'wisp_spline', field, fx.Color(*rgb, 0), rgb,
                        bounds_min=bounds_min, bounds_max=bounds_max, stamped=True, is_density=True, cache_hit=hit,
-                       color_field=color_field)
+                       color_field=color_field, color_is_uniform=False)
 
 
 def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_scale=1.0, preview=None):
@@ -690,6 +691,19 @@ def _prepare_object(prim, item, settings, stamp_cache=None, matrix=None, unit_sc
         item.stamped = True
         if stamp_cache:
             stamp_cache.save(prim, grid)
+    return item
+
+
+def _ensure_color_grid(item, settings):
+    """Represent a constant color as a compact OpenVDB background grid.
+
+    Density gates color at render time, so a uniform background is exact and
+    avoids filling a potentially enormous terrain bounding box with voxels.
+    Existing spatial color grids/fields remain intact.
+    """
+    if item.color_field is None:
+        voxel = _positive(settings.color_voxel_size, 'color voxel size')
+        item.color_field = fx.make_grid_field(fx.create_grid(voxel, item.color))
     return item
 
 
@@ -835,25 +849,41 @@ def get_point_noise_object(prim, cache, settings, unit_scale, stamp_cache=None, 
     # Primvar translations are local vectors; carry rotation and scale into
     # the world-space grid, just as for centers and frequencies.
     translations = [_vec(matrix.TransformDir(Gf.Vec3d(*v)), unit_scale) for v in translations]
+    color_default = _vec(_custom(prim, 'color', (1, 1, 1)))
+    color_name = None
+    for candidate in ('color', 'displayColor', 'Cd'):
+        pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar(candidate)
+        if pv and pv.HasAuthoredValue():
+            color_name = candidate
+            break
+    colors = [_vec(v) for v in (primvar_values(color_name, color_default, vector=True)
+                                if color_name else [color_default] * len(centers))]
+    if any(len(v) != 3 or min(v) < 0 for v in colors):
+        raise ValueError(f'{path}: point colors must have three non-negative finite components')
     radii = [r * scale for r in values['radius']]
     lo = tuple(min(p[i] - r for p, r in zip(centers, radii)) for i in range(3))
     hi = tuple(max(p[i] + r for p, r in zip(centers, radii)) for i in range(3))
     voxel = _object_voxel_size(prim, settings, unit_scale, preview.voxel_multiplier if preview else 1.0)
-    grid = stamp_cache.load(prim) if stamp_cache else None
-    hit = grid is not None
+    grids = stamp_cache.load_wisp(prim) if stamp_cache else None
+    hit = grids is not None
     if not hit:
         grid = fx.FloatGrid(voxel, 0.0)
+        color_grid = fx.ColorGrid(voxel)
         with _timed(f'Stamp point noise {path} ({len(centers)} points)'):
             for i, center in enumerate(centers):
                 fx.stamp_point_noise(grid, _fxvec(center), radii[i], values['fade'][i],
                                      values['density'][i], values['roughness'][i], values['octaves'][i],
                                      values['frequency'][i] / scale, values['frequency_jump'][i],
-                                     _fxvec(translations[i]), int(seeds[i]))
+                                     _fxvec(translations[i]), int(seeds[i]), color_grid, fx.Color(*colors[i], 1))
+            fx.normalize_wisp_colors(grid, color_grid)
         if stamp_cache:
-            stamp_cache.save(prim, grid)
-    rgb = _display_color(prim)
+            stamp_cache.save_wisp(prim, grid, color_grid)
+    else:
+        grid, color_grid = grids
+    rgb = tuple(colors[0])
     return SceneObject(path, 'point_noise', fx.make_grid_field(grid), fx.Color(*rgb, 0), rgb,
-                       bounds_min=lo, bounds_max=hi, stamped=True, is_density=True, cache_hit=hit)
+                       bounds_min=lo, bounds_max=hi, stamped=True, is_density=True, cache_hit=hit,
+                       color_field=fx.make_grid_field(color_grid), color_is_uniform=False)
 
 
 def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="cache", preview=None):
@@ -898,7 +928,8 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
         elif item is None and prim.IsA(UsdGeom.Gprim):
             raise ValueError(f'{path}: untagged geometry must be a USD Mesh')
         if item is not None:
-            objects[path] = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale, preview)
+            item = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale, preview)
+            objects[path] = _ensure_color_grid(item, settings)
 
     consumed, active = set(), set()
 
@@ -947,11 +978,29 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
             hi = tuple(max(obj.bounds_max[i] for obj in finite) for i in range(3)) if finite else None
         else:
             raise ValueError(f'{path}: unknown operation bounds policy {policy!r}')
-        rgb = _display_color(prim) if (prim.GetAttribute('primvars:displayColor') or
-                                      prim.GetAttribute('pbvfx:color')) else inputs[0].rgb
+        explicit_color = bool(prim.GetAttribute('primvars:displayColor') or prim.GetAttribute('pbvfx:color'))
+        rgb = _display_color(prim) if explicit_color else inputs[0].rgb
+        color_field = None
+        uniform_color = True
+        if not explicit_color:
+            if len(inputs) == 1 or name in ('cutout', 'subtract'):
+                color_field = inputs[0].color_field
+                uniform_color = inputs[0].color_is_uniform
+            else:
+                input_density = [obj.field if obj.is_density else fx.negate(fx.mask(obj.field)) for obj in inputs]
+                color_field = fx.make_density_weighted_color_field(input_density, [obj.color_field for obj in inputs])
+                uniform_color = False
         item = SceneObject(path, name, field, fx.Color(*rgb, 0), rgb,
-                           bounds_min=lo, bounds_max=hi)
-        objects[path] = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale, preview)
+                           bounds_min=lo, bounds_max=hi, color_field=color_field, color_is_uniform=uniform_color)
+        item = _prepare_object(prim, item, settings, stamp_cache, cache.GetLocalToWorldTransform(prim), scale, preview)
+        if color_field is not None and not item.color_is_uniform and item.stamped:
+            voxel = _positive(settings.color_voxel_size, 'color voxel size')
+            lo_color = tuple(x - 2 * voxel for x in item.bounds_min)
+            hi_color = tuple(x + 2 * voxel for x in item.bounds_max)
+            bounds = fx.world_space_to_bounds(_fxvec(lo_color), _fxvec(hi_color), voxel)
+            with _timed(f'Stamp color field {path}'):
+                item.color_field = fx.make_grid_field(fx.stamp_color_to_grid(color_field, bounds, voxel))
+        objects[path] = _ensure_color_grid(item, settings)
         return objects[path]
 
     for path in operations:

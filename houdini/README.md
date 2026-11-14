@@ -447,6 +447,22 @@ node defaults. The translation is converted from local to renderer space.
 Negative seeds are supported. Refresh existing Point Noise nodes to expose the
 controls, and clear or rename named caches after changing either value.
 
+Point-noise dots also stamp a density-weighted RGB grid. The node's object
+color is the fallback; per-point `color`, `displayColor` (usually exported from
+Houdini `Cd`), or `Cd` primvars take precedence in that order. Constant and
+indexed per-point primvars are supported. Overlapping contributions are added
+and their RGB is normalized by accumulated density. The point-noise VDB cache
+now holds both density and color; legacy density-only caches are rebuilt in
+place, and named caches must be cleared or renamed after changing colors.
+
+PhysVFX uses a color grid for every constant-colored field, including terrain,
+meshes and analytic objects. A uniform color is stored compactly as a grid
+background rather than a dense bounding box. Operations without an explicit
+color inherit their input color fields; a stamped operation with spatially
+varying color samples it into a grid at the scene's color voxel size. This
+can use substantial memory for large bounds. Different root fields' colors are
+blended using their densities where they overlap.
+
 For example, before SOP Import put an Attribute Wrangle after Scatter and
 connect the volcano's polygon geometry to its second input, in the same space:
 

@@ -454,6 +454,96 @@ def _render_programs(values):
     return _resolve_renderer_python(values['render_python']), script, repo, viewer
 
 
+def _numbered_paths(node, parm_name, frames):
+    from pathlib import Path
+    parm = node.parm('pv_' + parm_name)
+    paths = [Path(parm.evalAsStringAtFrame(frame)).expanduser().resolve() for frame in frames]
+    if len(set(paths)) != len(paths):
+        paths = [p.with_name(p.stem + f'.{frame:04d}' + p.suffix) for p, frame in zip(paths, frames)]
+    return paths
+
+
+def _frame_snapshot(stage, frame):
+    """Materialize the current frame as USD defaults for the existing renderer."""
+    from pxr import Usd
+    layer = stage.Flatten()
+    snapshot = Usd.Stage.Open(layer)
+    if not snapshot:
+        raise RuntimeError('Could not open the flattened USD stage')
+    time = Usd.TimeCode(float(frame))
+    for prim in snapshot.TraverseAll():
+        for attr in prim.GetAttributes():
+            if attr.GetNumTimeSamples():
+                value = attr.Get(time)
+                if value is None or not attr.Set(value, Usd.TimeCode.Default()):
+                    raise RuntimeError(f'Cannot snapshot {attr.GetPath()} at frame {frame}')
+        # Cached maps describe one scene, not an animated sequence.
+        shadow = prim.GetAttribute('pbvfx:shadowCacheLoad')
+        if shadow and not shadow.Set(False, Usd.TimeCode.Default()):
+            raise RuntimeError(f'Cannot disable shadow cache on {prim.GetPath()}')
+    return layer
+
+
+def _render_range(node, v):
+    import json
+    import os
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    import hou
+    start, end, step = int(v['frame_start']), int(v['frame_end']), int(v['frame_step'])
+    if step < 1 or end < start:
+        raise hou.OperationFailed('Choose an end frame at or after the start and a positive frame increment.')
+    frames = list(range(start, end + 1, step))
+    usds = _numbered_paths(node, 'usd_path', frames)
+    images = _numbered_paths(node, 'image_path', frames)
+    if any(p.suffix.lower() != '.usda' for p in usds) or any(not p.suffix for p in images):
+        raise hou.OperationFailed('Choose .usda scene paths and image paths with an extension.')
+    if len(set(usds + images)) != len(usds) + len(images):
+        raise hou.OperationFailed('Each frame must have a unique USD and image path.')
+    python, script, repo, viewer = _render_programs(v)
+    _cancel_previous_render(node)
+    original_frame = hou.frame()
+    entries = []
+    try:
+        for frame, usd, image in zip(frames, usds, images):
+            print(f'[PhysVFX] Exporting frame {frame} to {usd}', flush=True)
+            hou.setFrame(frame)
+            stage = node.stage()
+            if stage is None:
+                raise hou.OperationFailed(f'Cannot evaluate the stage at frame {frame}')
+            layer = _frame_snapshot(stage, frame)
+            usd.parent.mkdir(parents=True, exist_ok=True)
+            image.parent.mkdir(parents=True, exist_ok=True)
+            fd, temp = tempfile.mkstemp(prefix='.physvfx_', suffix='.usda', dir=str(usd.parent))
+            os.close(fd)
+            try:
+                if not layer.Export(temp):
+                    raise hou.OperationFailed(f'Could not export frame {frame}')
+                os.replace(temp, usd)
+            finally:
+                if os.path.exists(temp): os.unlink(temp)
+            entries.append({'frame': frame, 'usd': str(usd), 'image': str(image)})
+    finally:
+        hou.setFrame(original_frame)
+    fd, manifest = tempfile.mkstemp(prefix='physvfx_sequence_', suffix='.json')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as out:
+            json.dump(entries, out)
+        worker = Path(__file__).resolve().parent / 'render_worker.py'
+        command = [python, '-u', str(worker), '--python', python, '--script', str(script),
+                   '--usd', str(usds[0]), '--image', str(images[0]), '--viewer', str(viewer),
+                   '--cache-dir', v['render_stamp_dir'], '--sequence-manifest', manifest]
+        process = subprocess.Popen(command, cwd=str(repo), env=_renderer_environment(repo),
+                                   start_new_session=(os.name == 'posix'))
+    except Exception:
+        if os.path.exists(manifest): os.unlink(manifest)
+        raise
+    _render_jobs[node.path()] = process
+    _monitor_render_worker(process)
+    print(f'[PhysVFX] Rendered sequence worker launched for {len(frames)} frame(s).', flush=True)
+
+
 def render_and_view(node):
     """Export this LOP's stage, then start the renderer and viewer in a worker."""
     import os
@@ -465,6 +555,8 @@ def render_and_view(node):
     v = read_values(node, 'render_view')
     if not v['usd_path'].strip() or not v['image_path'].strip():
         raise hou.OperationFailed('Set both USD Save Path and Image Save Path.')
+    if v['render_frame_range']:
+        return _render_range(node, v)
     usd = Path(v['usd_path']).expanduser().resolve()
     image = Path(v['image_path']).expanduser().resolve()
     if usd.suffix.lower() != '.usda':

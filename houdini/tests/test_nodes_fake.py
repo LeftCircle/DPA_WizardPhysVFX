@@ -136,6 +136,90 @@ def make_hou():
 
 
 class NodeConstructionTests(unittest.TestCase):
+    def test_frame_snapshot_bakes_sampled_values_and_disables_shadow_cache(self):
+        from physvfx_houdini.nodes import _frame_snapshot
+        class Attribute:
+            def __init__(self, samples, value): self.samples, self.value = samples, value
+            def GetNumTimeSamples(self): return self.samples
+            def Get(self, time): return self.value + time
+            def Set(self, value, time): self.baked = value; return True
+        position = Attribute(1, 10)
+        shadow = Attribute(0, 1)
+        prim = types.SimpleNamespace(GetAttributes=lambda: [position, shadow],
+            GetAttribute=lambda name: shadow if name == 'pbvfx:shadowCacheLoad' else None)
+        snapshot = types.SimpleNamespace(TraverseAll=lambda: [prim])
+        layer = object()
+        stage = types.SimpleNamespace(Flatten=lambda: layer)
+        timecode = types.SimpleNamespace(Default=lambda: 'default')
+        class USDTime:
+            def __new__(cls, value): return value
+            Default = timecode.Default
+        pxr = types.SimpleNamespace(Usd=types.SimpleNamespace(TimeCode=USDTime,
+            Stage=types.SimpleNamespace(Open=lambda value: snapshot)))
+        with patch.dict(sys.modules, {'pxr': pxr}):
+            self.assertIs(_frame_snapshot(stage, 7), layer)
+        self.assertEqual(position.baked, 17)
+        self.assertFalse(shadow.baked)
+
+    def test_frame_range_exports_distinct_snapshots_and_restores_time(self):
+        hou = make_hou(); hou.isUIAvailable = lambda: False
+        time = [9.0]
+        hou.frame = lambda: time[0]
+        hou.setFrame = lambda value: time.__setitem__(0, value)
+        class Layer:
+            def __init__(self, frame): self.frame = frame
+            def Export(self, path): Path(path).write_text(str(self.frame)); return True
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'hou': hou}):
+            root = Path(tmp)
+            node = create_node('render_view', network=Network('lop'))
+            node.parm('pv_render_frame_range').set(True)
+            node.parm('pv_frame_start').set(1)
+            node.parm('pv_frame_end').set(5)
+            node.parm('pv_frame_step').set(2)
+            node.parm('pv_usd_path').set(str(root / 'scene.usda'))
+            node.parm('pv_image_path').set(str(root / 'image.exr'))
+            for name in ('pv_usd_path', 'pv_image_path'):
+                parm = node.parm(name)
+                parm.evalAsStringAtFrame = lambda frame, parm=parm: parm.evalAsString()
+            node.stage = lambda: object()
+            with patch('physvfx_houdini.nodes._frame_snapshot', side_effect=lambda stage, frame: Layer(frame)), \
+                 patch('physvfx_houdini.nodes._render_programs', return_value=(sys.executable, root/'renderer.py', root, root/'viewer')), \
+                 patch('physvfx_houdini.nodes._cancel_previous_render'), \
+                 patch('physvfx_houdini.nodes._monitor_render_worker'), patch('subprocess.Popen') as popen:
+                render_and_view(node)
+                self.assertEqual(time[0], 9.0)
+                self.assertEqual([p.read_text() for p in sorted(root.glob('scene.*.usda'))], ['1', '3', '5'])
+                command = popen.call_args.args[0]
+                manifest = Path(command[command.index('--sequence-manifest') + 1])
+                import json
+                entries = json.loads(manifest.read_text())
+                self.assertEqual([e['frame'] for e in entries], [1, 3, 5])
+                self.assertTrue(entries[1]['image'].endswith('image.0003.exr'))
+                manifest.unlink()
+
+    def test_frame_range_restores_time_if_export_fails(self):
+        hou = make_hou(); hou.isUIAvailable = lambda: False
+        frame = [12]
+        hou.frame = lambda: frame[0]
+        hou.setFrame = lambda value: frame.__setitem__(0, value)
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {'hou': hou}):
+            root = Path(tmp)
+            node = create_node('render_view', network=Network('lop'))
+            node.parm('pv_render_frame_range').set(True)
+            node.parm('pv_frame_start').set(1)
+            node.parm('pv_frame_end').set(2)
+            for key, value in [('pv_usd_path', 'scene.usda'), ('pv_image_path', 'image.exr')]:
+                parm = node.parm(key); parm.set(str(root / value))
+                parm.evalAsStringAtFrame = lambda f, parm=parm: parm.evalAsString()
+            node.stage = lambda: object()
+            with patch('physvfx_houdini.nodes._frame_snapshot', side_effect=RuntimeError('bad USD')), \
+                 patch('physvfx_houdini.nodes._render_programs', return_value=(sys.executable, root/'r.py', root, root/'viewer')), \
+                 patch('physvfx_houdini.nodes._cancel_previous_render'), patch('subprocess.Popen') as popen:
+                with self.assertRaisesRegex(RuntimeError, 'bad USD'):
+                    render_and_view(node)
+                self.assertEqual(frame[0], 12)
+                popen.assert_not_called()
+
     def test_continuous_preview_toggle_starts_and_stops_session(self):
         hou = make_hou(); hou.isUIAvailable = lambda: True
         with patch.dict(sys.modules, {'hou': hou}), \

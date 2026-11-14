@@ -1,6 +1,7 @@
 """Background renderer started by the Solaris Render and View node."""
 import argparse
 import glob
+import json
 import os
 import signal
 from pathlib import Path
@@ -10,7 +11,7 @@ import tempfile
 import time
 
 
-def render_and_view(python, script, usd, image, viewer, cache_dir):
+def render_and_view(python, script, usd, image, viewer, cache_dir, open_viewer=True):
     image = Path(image)
     fd, temp = tempfile.mkstemp(prefix='.physvfx_render_', suffix=image.suffix, dir=str(image.parent))
     os.close(fd)
@@ -23,8 +24,9 @@ def render_and_view(python, script, usd, image, viewer, cache_dir):
         if not os.path.isfile(temp) or os.path.getsize(temp) == 0:
             raise RuntimeError('renderer did not produce a non-empty image')
         os.replace(temp, image)
-        print(f'[PhysVFX] Wrote {image}; opening image viewer.', flush=True)
-        subprocess.Popen([viewer, '-image', str(image)])
+        print(f'[PhysVFX] Wrote {image}.', flush=True)
+        if open_viewer:
+            subprocess.Popen([viewer, '-image', str(image)])
     finally:
         if os.path.exists(temp): os.unlink(temp)
 
@@ -103,11 +105,27 @@ def main(argv=None):
     for name in ('python', 'script', 'usd', 'image', 'viewer', 'cache-dir'):
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--progressive', action='store_true')
+    parser.add_argument('--sequence-manifest')
     args = parser.parse_args(argv)
     signal.signal(signal.SIGTERM, _cancel_on_signal)
     try:
-        renderer = render_progressively if args.progressive else render_and_view
-        renderer(args.python, args.script, args.usd, args.image, args.viewer, args.cache_dir)
+        if args.sequence_manifest:
+            try:
+                with open(args.sequence_manifest, encoding='utf-8') as source:
+                    frames = json.load(source)
+                for entry in frames:
+                    print(f"[PhysVFX] Rendering frame {entry['frame']}", flush=True)
+                    # Named stamp caches have no scene-content invalidation.
+                    # Isolate each frame to prevent reuse of stale animated fields.
+                    with tempfile.TemporaryDirectory(prefix='physvfx_frame_cache_') as cache:
+                        render_and_view(args.python, args.script, entry['usd'], entry['image'], args.viewer, cache, False)
+                if frames:
+                    subprocess.Popen([args.viewer, '-image', frames[-1]['image']])
+            finally:
+                os.unlink(args.sequence_manifest)
+        else:
+            renderer = render_progressively if args.progressive else render_and_view
+            renderer(args.python, args.script, args.usd, args.image, args.viewer, args.cache_dir)
     except RenderCancelled:
         print('[PhysVFX] Render cancelled.', flush=True)
         return 130

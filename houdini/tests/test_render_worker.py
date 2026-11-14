@@ -9,10 +9,52 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from physvfx_houdini.render_worker import render_and_view, render_progressively
+from physvfx_houdini.render_worker import render_and_view, render_progressively, main
 
 
 class RenderWorkerTests(unittest.TestCase):
+    def test_frame_range_renders_in_order_with_separate_caches(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            script = folder / 'renderer.py'
+            script.write_text('import pathlib,sys\n'
+                'out=pathlib.Path(sys.argv[sys.argv.index("--output")+1])\n'
+                'scene=pathlib.Path(sys.argv[1])\n'
+                'out.write_text(scene.read_text())\n')
+            frames = []
+            for n in (1, 3, 5):
+                usd = folder / f'scene.{n}.usda'; usd.write_text(str(n))
+                frames.append({'frame': n, 'usd': str(usd), 'image': str(folder / f'image.{n}.exr')})
+            manifest = folder / 'frames.json'; manifest.write_text(json.dumps(frames))
+            real_popen = subprocess.Popen
+            viewer_calls = []
+            def intercept(args, *a, **kw):
+                if args[0] == 'viewer': viewer_calls.append(args); return object()
+                return real_popen(args, *a, **kw)
+            args = ['--python', sys.executable, '--script', str(script), '--usd', 'ignored',
+                    '--image', 'ignored', '--viewer', 'viewer', '--cache-dir', 'unused',
+                    '--sequence-manifest', str(manifest)]
+            with patch('subprocess.Popen', side_effect=intercept):
+                self.assertEqual(main(args), 0)
+            self.assertEqual([Path(e['image']).read_text() for e in frames], ['1', '3', '5'])
+            self.assertEqual(viewer_calls, [['viewer', '-image', frames[-1]['image']]])
+            self.assertFalse(manifest.exists())
+
+    def test_frame_range_stops_on_failure_and_does_not_open_viewer(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            script = folder / 'renderer.py'; script.write_text('raise SystemExit(4)\n')
+            output = folder / 'image.exr'; output.write_text('old')
+            manifest = folder / 'frames.json'
+            manifest.write_text(json.dumps([{'frame': 1, 'usd': 'scene.usda', 'image': str(output)}]))
+            args = ['--python', sys.executable, '--script', str(script), '--usd', 'ignored',
+                    '--image', 'ignored', '--viewer', 'viewer', '--cache-dir', 'unused',
+                    '--sequence-manifest', str(manifest)]
+            self.assertEqual(main(args), 1)
+            self.assertEqual(output.read_text(), 'old')
+            self.assertFalse(manifest.exists())
     def test_success_replaces_image_and_launches_viewer_with_image_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp) / 'path with spaces'; directory.mkdir()

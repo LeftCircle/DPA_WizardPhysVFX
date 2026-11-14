@@ -130,6 +130,11 @@ PARAMETERS = {
           "Show ten progressively denser full-size passes in one updating viewer."),
         P("render_view", "Render and View", "button", None,
           "Save the stage, render in the background and open the resulting image."),
+    )), ("Frame Range", (
+        P('render_frame_range', 'Render Frame Range', 'toggle', False),
+        P('frame_start', 'Start Frame', 'int', 1),
+        P('frame_end', 'End Frame', 'int', 100),
+        P('frame_step', 'Frame Increment', 'int', 1),
     )), ("Continuous Preview", (
         P("continuous_preview", "Continuous Preview", "toggle", False,
           "Automatically update a separate watched viewer when the scene changes."),

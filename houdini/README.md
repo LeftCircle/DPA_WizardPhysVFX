@@ -480,12 +480,28 @@ shadow-map creation happen before the first pass, so complex scenes may still
 take time to show the first image. Shadow-region caches can reduce repeated
 shadow-map work. A custom **Image Viewer** must support `--watch`.
 
+To render a sequence, enable **Render Frame Range** on the **Frame Range** tab
+and set Start Frame, End Frame and Frame Increment. End is inclusive. The node
+exports one composed USDA per frame before starting a background worker, then
+renders the frames in order and opens the last completed image. The export
+step runs in Houdini and may take time; the original timeline frame is restored
+afterwards. Animated USD values are sampled at each frame and copied to default
+values in that frame's snapshot because the renderer reads default values.
+
+Include `$F4` in the USD and image paths for explicit frame numbering. If the
+paths do not produce distinct names, the node inserts a four-digit frame
+number before the extension (for example `render.0001.exr`). The range uses
+fresh temporary stamp caches for each frame and ignores saved shadow-map caches
+to prevent stale animation. Sequence rendering does not use the single-frame
+progressive viewer; the viewer opens once, after the final frame. Existing
+Render and View nodes need **Refresh PhysVFX Parameters** to add the controls.
+
 Click **Render and View** again on the same node to stop its current render and
 viewer before starting a new render from the latest scene. If a render is
 cancelled, the previous completed image stays on disk until the replacement
 finishes. Different Render and View nodes can still run concurrently; use
-different USD and image paths for those nodes. The node uses the USD loader's
-default time; this is not a frame-sequence renderer.
+different USD and image paths for those nodes. Single-frame rendering uses the
+USD loader's default time.
 
 ### Continuous preview
 

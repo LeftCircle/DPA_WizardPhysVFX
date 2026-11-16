@@ -284,10 +284,11 @@ PYBIND11_MODULE(physics_vfx, module)
             py::arg("maximum") = 1.f)
         .def("stamp", [](UniformWisp& w, FloatGridHandle& grid) {
             w.stamp_wisp_dots<float>(grid.grid);
-        }, py::arg("grid"))
+        }, py::arg("grid"), py::call_guard<py::gil_scoped_release>())
         .def("stamp_colored", [](UniformWisp& w, FloatGridHandle& density, ColorGridHandle& color) {
             w.stamp_wisp_dots_colored(density.grid, color.grid);
-        }, py::arg("density_grid"), py::arg("color_accumulator"));
+        }, py::arg("density_grid"), py::arg("color_accumulator"),
+           py::call_guard<py::gil_scoped_release>());
     module.attr("wisp_uniform") = module.attr("UniformWisp");
 
     py::class_<WispGuideParticle>(module, "WispGuideParticle")
@@ -296,8 +297,9 @@ PYBIND11_MODULE(physics_vfx, module)
              py::arg("noise1"), py::arg("noise2"), py::arg("displacement"),
              py::arg("location"), py::arg("axis"), py::arg("id"), py::arg("color") = Color(1, 1, 1, 1));
     py::class_<WispSpline>(module, "WispSpline")
-        .def(py::init<const std::vector<WispGuideParticle>&, size_t, float, int>(),
-             py::arg("guides"), py::arg("n_dots"), py::arg("voxel_size"), py::arg("seed"))
+        .def(py::init<const std::vector<WispGuideParticle>&, size_t, float, int, float>(),
+             py::arg("guides"), py::arg("n_dots"), py::arg("voxel_size"), py::arg("seed"),
+             py::arg("flow_offset") = 0.0f)
         .def("stamp_wisp_spline", &WispSpline::stamp_wisp_spline,
              py::call_guard<py::gil_scoped_release>())
         .def("stamp_grid", [](WispSpline& spline) {

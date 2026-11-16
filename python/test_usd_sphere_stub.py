@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -150,6 +151,49 @@ def fixture():
 
 
 class TranslationTests(unittest.TestCase):
+    def test_independent_wisps_stamp_concurrently_with_separate_caches(self):
+        module, *_ = fixture()
+        prims = [Prim(None, '/wisp', {'pbvfx:field_type': 'wisp'}),
+                 Prim(None, '/spline', {'pbvfx:field_type': 'wisp_spline'})]
+        rendezvous = threading.Barrier(2, timeout=3)
+        seen = []
+
+        def stamp(prim, transforms, settings, scale, cache, preview):
+            seen.append((str(prim.GetPath()), transforms, cache))
+            rendezvous.wait()
+            return object()
+
+        with patch.object(module.os, 'cpu_count', return_value=2), \
+             patch.object(module, 'get_wisp_object', side_effect=stamp), \
+             patch.object(module, 'get_wisp_spline_object', side_effect=stamp):
+            result = module._build_wisp_objects(prims, SettingsObject(), 1, '/tmp/cache', None)
+        self.assertEqual(set(result), {'/wisp', '/spline'})
+        self.assertIsNot(result['/wisp'], result['/spline'])
+        self.assertIsNot(seen[0][1], seen[1][1])
+        self.assertIsNot(seen[0][2], seen[1][2])
+
+    def test_sequence_static_cache_reuses_existing_and_isolates_dynamic(self):
+        module, *_ = fixture()
+        static = Prim(None, '/terrain', {'pbvfx:cacheName': 'ground_terrain', 'pbvfx:staticStampCache': True})
+        dynamic = Prim(None, '/smoke', {'pbvfx:cacheName': 'smoke', 'pbvfx:staticStampCache': False})
+        module.fx.load_float_grid = lambda path: Path(path).read_text()
+        module.fx.save_to_disk = lambda grid, path: Path(path).write_text(grid)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            persistent, frame1, frame2 = root / 'persistent', root / 'frame1', root / 'frame2'
+            persistent.mkdir()
+            (persistent / 'ground_terrain.vdb').write_text('existing terrain')
+            first = module.StampCache(frame1, persistent)
+            self.assertEqual(first.load(static), 'existing terrain')
+            first.save(dynamic, 'frame 1')
+            second = module.StampCache(frame2, persistent)
+            self.assertEqual(second.load(static), 'existing terrain')
+            self.assertIsNone(second.load(dynamic))
+            second.save(dynamic, 'frame 2')
+            self.assertEqual((frame1 / 'smoke.vdb').read_text(), 'frame 1')
+            self.assertEqual((frame2 / 'smoke.vdb').read_text(), 'frame 2')
+            self.assertEqual((persistent / 'ground_terrain.vdb').read_text(), 'existing terrain')
+
     def test_point_noise_stamps_per_point_and_uses_defaults(self):
         module, _, _, _, _, _ = fixture()
         stage = module.Usd.Stage.Open('scene')
@@ -534,7 +578,7 @@ class TranslationTests(unittest.TestCase):
             def active_world_bounds(self): return ((-1,-1,-1), (1,5,1))
         calls = []
         class Spline:
-            def __init__(self, guides, dots, voxel, seed): calls.append((guides, dots, voxel, seed))
+            def __init__(self, guides, dots, voxel, seed, flow): calls.append((guides, dots, voxel, seed, flow))
             def stamp_colored(self): return Grid(), ('color_grid',)
         module.fx.FSVals = lambda *args: args
         module.fx.CoordinateSys = lambda: SimpleNamespace()
@@ -548,7 +592,7 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(calls[0][0][1][1], -2)
         self.assertEqual((calls[0][0][0][-1].red, calls[0][0][0][-1].blue), (1, 0))
         self.assertEqual((calls[0][0][1][-1].red, calls[0][0][1][-1].blue), (0, 1))
-        self.assertEqual(calls[0][1:], (50, 0.2, 7))
+        self.assertEqual(calls[0][1:], (50, 0.2, 7, 0.0))
         self.assertEqual(scene.density, item.field)
         self.assertEqual(scene.color[0], 'weighted_color')
         self.assertLess(item.bounds_min[0], 1)
@@ -565,10 +609,18 @@ class TranslationTests(unittest.TestCase):
             preview = module.PreviewQuality(.25, 4, 2, .2)
             live = module.load_scene('scene', cache_dir=tmp, preview=preview)
             self.assertFalse(live.objects[0].cache_hit)
-            self.assertEqual(calls[-1][1:], (10, 0.4, 7))
+            self.assertEqual(calls[-1][1:], (10, 0.4, 7, 0.0))
             self.assertAlmostEqual(calls[-1][0][0][1], -0.625)
             self.assertAlmostEqual(calls[-1][0][1][1], -1.25)
             self.assertEqual((Path(tmp) / 'spline_test.vdb').read_text(), 'grid')
+        attrs.pop('pbvfx:cacheName')
+        attrs['pbvfx:splineFlowOffset'] = -0.25
+        module.load_scene('scene')
+        self.assertEqual(calls[-1][-1], -0.25)
+        attrs['pbvfx:splineFlowOffset'] = float('nan')
+        with self.assertRaisesRegex(ValueError, 'splineFlowOffset must be finite'):
+            module.load_scene('scene')
+        attrs.pop('pbvfx:splineFlowOffset')
         attrs['pbvfx:spline_density'] = [1]
         with self.assertRaisesRegex(ValueError, 'one value per position'):
             module.load_scene('scene')

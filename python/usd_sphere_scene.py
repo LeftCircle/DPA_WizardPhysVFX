@@ -9,6 +9,7 @@ import re
 import tempfile
 import time
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -352,8 +353,9 @@ def get_isf_object(prim, cache, unit_scale):
 
 class StampCache:
     """Named VDB caches; names are explicit keys and are not auto-invalidated."""
-    def __init__(self, directory):
+    def __init__(self, directory, static_directory=None):
         self.directory = Path(directory) if directory is not None else None
+        self.static_directory = Path(static_directory) if static_directory is not None else None
         self.owners = {}
 
     def path_for(self, prim):
@@ -366,9 +368,13 @@ class StampCache:
         if name in self.owners and self.owners[name] != path:
             raise ValueError(f'{path}: duplicate pbvfx:cacheName {name!r}')
         self.owners[name] = path
-        if self.directory is None:
+        static = _custom(prim, 'staticStampCache', False)
+        if not isinstance(static, bool):
+            raise ValueError(f'{path}: pbvfx:staticStampCache must be a bool')
+        directory = self.static_directory if static and self.static_directory is not None else self.directory
+        if directory is None:
             return None
-        return self.directory / (name + '.vdb')
+        return directory / (name + '.vdb')
 
     def load(self, prim):
         path = self.path_for(prim)
@@ -383,8 +389,8 @@ class StampCache:
         path = self.path_for(prim)
         if path is None:
             return
-        self.directory.mkdir(parents=True, exist_ok=True)
-        fd, temp = tempfile.mkstemp(prefix='.stamp-', suffix='.vdb', dir=self.directory)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp = tempfile.mkstemp(prefix='.stamp-', suffix='.vdb', dir=path.parent)
         os.close(fd)
         try:
             with _timed(f'Save stamp cache {prim.GetPath()} ({path})'):
@@ -407,8 +413,8 @@ class StampCache:
     def save_wisp(self, prim, density, color):
         path = self.path_for(prim)
         if path is None: return
-        self.directory.mkdir(parents=True, exist_ok=True)
-        fd, temp = tempfile.mkstemp(prefix='.stamp-', suffix='.vdb', dir=str(self.directory))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp = tempfile.mkstemp(prefix='.stamp-', suffix='.vdb', dir=str(path.parent))
         os.close(fd)
         try:
             fx.save_wisp_grids(density, color, temp)
@@ -579,6 +585,9 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, 
     path = str(prim.GetPath())
     dots = int(_custom(prim, 'splineDots', 0))
     seed = int(_custom(prim, 'splineSeed', 1))
+    flow_offset = float(_custom(prim, 'splineFlowOffset', 0.0))
+    if not math.isfinite(flow_offset):
+        raise ValueError(f'{path}: pbvfx:splineFlowOffset must be finite')
     if not 1 <= dots <= 2147483647 or not -2147483648 <= seed <= 2147483647:
         raise ValueError(f'{path}: invalid spline dot count or seed')
     positions = _custom(prim, 'splinePositions', None)
@@ -632,7 +641,7 @@ def get_wisp_spline_object(prim, cache, settings, unit_scale, stamp_cache=None, 
                           _fxvec(channels['displacement'][i]), _fxvec(pos), axis, i,
                           fx.Color(*(rgb[j] * channels['color'][i][j] for j in range(3)), 1)))
         with _timed(f'Stamp wisp spline {path} ({dots} dots)'):
-            grid, color_grid = fx.WispSpline(guides, dots, voxel, seed).stamp_colored()
+            grid, color_grid = fx.WispSpline(guides, dots, voxel, seed, flow_offset).stamp_colored()
         if stamp_cache:
             stamp_cache.save_wisp(prim, grid, color_grid)
     else:
@@ -886,11 +895,40 @@ def get_point_noise_object(prim, cache, settings, unit_scale, stamp_cache=None, 
                        color_field=fx.make_grid_field(color_grid), color_is_uniform=False)
 
 
-def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="cache", preview=None):
+def _build_wisp_objects(prims, settings, scale, cache_dir, preview, static_cache_dir=None):
+    """Stamp independent wisps concurrently, keeping a grid pair per prim.
+
+    Each worker has its own USD transform cache and stamp-cache bookkeeping.
+    The stage is read-only and cache-name collisions are validated beforehand.
+    Limit concurrency to bound the memory used by simultaneous VDB grids.
+    """
+    wisps = [p for p in prims if _custom(p, 'operation', None) is None and
+             _custom(p, 'field_type', None) in ('wisp', 'wisp_spline')]
+    if not wisps:
+        return {}
+
+    def build(prim):
+        if _custom(prim, 'isf_type', None) is not None:
+            raise ValueError(f'{prim.GetPath()}: choose either pbvfx:field_type or pbvfx:isf_type')
+        transforms = UsdGeom.XformCache(Usd.TimeCode.Default())
+        cache = StampCache(cache_dir, static_cache_dir)
+        create = (get_wisp_object if _custom(prim, 'field_type', None) == 'wisp'
+                  else get_wisp_spline_object)
+        return str(prim.GetPath()), create(prim, transforms, settings, scale, cache, preview)
+
+    if len(wisps) == 1:
+        return dict([build(wisps[0])])
+    workers = min(len(wisps), os.cpu_count() or 1, 4)
+    _progress(f'Stamping {len(wisps)} independent wisps with up to {workers} workers')
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='physvfx-wisp') as executor:
+        return dict(executor.map(build, wisps))
+
+
+def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="cache", preview=None, static_cache_dir=None):
     """Resolve geometry and operation relationships; return unconsumed roots."""
     scale = _unit_scale(stage, volume_meters_per_unit)
     cache = UsdGeom.XformCache(Usd.TimeCode.Default())
-    stamp_cache = StampCache(None if preview else cache_dir)
+    stamp_cache = StampCache(None if preview else cache_dir, None if preview else static_cache_dir)
     # Houdini viewport guides are geometry but are not renderer scene objects.
     prims = [p for p in stage.Traverse() if not _custom(p, 'preview', False)]
     operations = {}
@@ -900,6 +938,7 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
         if (_custom(prim, 'field_type', None) in ('wisp', 'wisp_spline', 'point_noise') or
             prim.IsA(UsdGeom.Mesh) or _custom(prim, 'stamp', False) is True):
             stamp_cache.path_for(prim)
+    wisp_objects = _build_wisp_objects(prims, settings, scale, stamp_cache.directory, preview, stamp_cache.static_directory)
     for prim in prims:
         path = str(prim.GetPath())
         op = _custom(prim, 'operation', None)
@@ -914,9 +953,9 @@ def get_scene_objects(stage, settings, volume_meters_per_unit=1.0, cache_dir="ca
         if field_type == 'point_noise':
             item = get_point_noise_object(prim, cache, settings, scale, stamp_cache, preview)
         elif field_type == 'wisp':
-            item = get_wisp_object(prim, cache, settings, scale, stamp_cache, preview)
+            item = wisp_objects[path]
         elif field_type == 'wisp_spline':
-            item = get_wisp_spline_object(prim, cache, settings, scale, stamp_cache, preview)
+            item = wisp_objects[path]
         elif field_type == 'plane':
             item = get_plane_object(prim, cache, scale)
         elif field_type == 'infinite_plane':
@@ -1182,7 +1221,7 @@ class PreviewQuality:
                 raise ValueError(f'Preview {name} must be at least 1')
 
 
-def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache", preview=None):
+def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache", preview=None, static_cache_dir=None):
     """Return PhysVFX components and combined fields for a USD stage."""
     with _timed(f'Open USD stage {filename}'):
         stage = Usd.Stage.Open(str(filename))
@@ -1202,7 +1241,7 @@ def load_scene(filename, volume_meters_per_unit=1.0, cache_dir="cache", preview=
             settings.shadow_voxel_size *= preview.voxel_multiplier
         lights = get_lights(stage, settings, volume_meters_per_unit)
     with _timed('Build scene fields and operations'):
-        objects = get_scene_objects(stage, settings, volume_meters_per_unit, cache_dir, preview)
+        objects = get_scene_objects(stage, settings, volume_meters_per_unit, cache_dir, preview, static_cache_dir)
     if not objects:
         raise ValueError('No tagged ISFs or USD meshes found')
     _progress(f'Scene contains {len(objects)} root field(s) and {len(lights)} light(s)')
@@ -1237,6 +1276,7 @@ def main(argv=None):
     parser.add_argument('--save-shadow-cache', metavar='REGION_PRIM_PATH', help='Build and save only this region’s shadow maps')
     parser.add_argument('--volume-meters-per-unit', type=float, default=1.0)
     parser.add_argument('--cache-dir', default='cache', help='Directory for named stamp caches (default: cache)')
+    parser.add_argument('--static-cache-dir', help='Persistent directory for explicitly static stamp caches')
     parser.add_argument('--live-preview', action='store_true', help='Use temporary, reduced-quality interactive rendering')
     parser.add_argument('--live-resolution-scale', type=float, default=0.25)
     parser.add_argument('--live-step-multiplier', type=float, default=4.0)
@@ -1254,7 +1294,7 @@ def main(argv=None):
     try:
         preview = PreviewQuality(args.live_resolution_scale, args.live_step_multiplier,
                                  args.live_voxel_multiplier, args.live_dot_fraction) if args.live_preview else None
-        scene = load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir, preview)
+        scene = load_scene(args.scene, args.volume_meters_per_unit, args.cache_dir, preview, args.static_cache_dir)
         if args.save_shadow_cache:
             scene.save_shadow_cache(args.save_shadow_cache)
         if args.output:

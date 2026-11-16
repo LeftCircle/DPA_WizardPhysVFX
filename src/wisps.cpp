@@ -17,6 +17,8 @@ void normalize_wisp_color_grid(const openvdb::FloatGrid::Ptr& density,
     }
 }
 
+// This was originaly based on the wisp spline slides, but the wizard updated it and it seems to 
+// look good so ¯\(ツ)/¯
 CoordinateSys CoordinateSys::lerp(const CoordinateSys& other, float t) const {
     auto interp = [](const Vector& coord, const Vector& other_coord, float t){
         const auto cm = coord.magnitude();
@@ -69,11 +71,16 @@ WispSpline::WispSpline(
         const std::vector<WispGuideParticle>& guide_particles,
         size_t n_dots,
         float voxel_size,
-        int seed
-) : _guide_particles(guide_particles), _n_dots(n_dots), _voxel_size(voxel_size), _seed(seed) 
+        int seed,
+        float flow_offset
+) : _guide_particles(guide_particles), _n_dots(n_dots), _voxel_size(voxel_size), _seed(seed), _flow_offset(flow_offset)
 {
     if (_guide_particles.size() < 2 || _n_dots == 0 || !std::isfinite(_voxel_size) || _voxel_size <= 0)
         throw std::invalid_argument("wisp spline needs at least two guides, positive dot count and voxel size");
+    if (!std::isfinite(_flow_offset))
+        throw std::invalid_argument("wisp spline flow offset must be finite");
+    _flow_offset = std::fmod(_flow_offset, 1.0f);
+    if (_flow_offset < 0) _flow_offset += 1.0f;
     // determine the length of the segment
     float l = 0;
     _cumulative_lengths.reserve(_guide_particles.size());
@@ -116,6 +123,13 @@ openvdb::FloatGrid::Ptr WispSpline::stamp_wisp_spline_grid(openvdb::Vec3SGrid::P
     };
     for (size_t i = 0; i < _n_dots; ++i) {
         float t = rng(0, 1);
+
+        // Preserve the random stream and each dot's cross-section sample.
+        // A positive offset moves dots from the first guide toward the last.
+        if (_flow_offset != 0.0f) {
+            t += _flow_offset;
+            if (t >= 1.0f) t -= 1.0f;
+        }
 
         // Locate neighboring guides and the local parameter u.
         auto [segment, u] = _locate_segment(t);

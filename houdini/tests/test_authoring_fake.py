@@ -109,6 +109,17 @@ class AuthoringContractTests(unittest.TestCase):
         self.addCleanup(self.modules.stop)
         self.stage = Stage()
 
+    def test_wisp_spline_flow_offset_is_authored_and_checked(self):
+        from physvfx_houdini.spline_channels import default_guides
+        values = defaults('wisp_spline')
+        values['guides'] = default_guides()
+        values['flow_offset'] = -0.25
+        prim = author(self.stage, 'wisp_spline', values)
+        self.assertEqual(prim.attrs['pbvfx:splineFlowOffset'].Get(), -0.25)
+        values['flow_offset'] = float('nan')
+        with self.assertRaises(AuthoringError):
+            author(self.stage, 'wisp_spline', values)
+
     def test_point_noise_authors_defaults_on_existing_points(self):
         prim = self.stage.DefinePrim('/World/points', 'Points')
         values = defaults('point_noise')
@@ -166,6 +177,21 @@ class AuthoringContractTests(unittest.TestCase):
         v['show_preview'] = False
         author(self.stage, 'wisp_spline', v)
         self.assertEqual(guide.attrs['Visibility'].value, 'invisible')
+
+    def test_static_cache_marker_requires_name_and_is_authored(self):
+        values = defaults('operation')
+        values['input_a'] = '/World/input'
+        values['input_b'] = '/World/input2'
+        self.stage.DefinePrim('/World/input', 'Mesh')
+        self.stage.DefinePrim('/World/input2', 'Mesh')
+        values['static_cache'] = True
+        values['cache_name'] = 'ground_terrain'
+        prim = author(self.stage, 'operation', values)
+        self.assertTrue(prim.attrs['pbvfx:staticStampCache'].Get())
+        self.assertEqual(prim.attrs['pbvfx:cacheName'].Get(), 'ground_terrain')
+        values['cache_name'] = ''
+        with self.assertRaises(AuthoringError):
+            author(self.stage, 'operation', values)
 
     def test_wisp_spline_manual_guides_and_degenerate_validation(self):
         from physvfx_houdini.spline_channels import default_guides

@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #include "wisps.h"
@@ -134,6 +136,32 @@ TEST_CASE("wisp spline stamps a deterministic field and rejects coincident guide
     REQUIRE(spline.stamp_wisp_spline());
     REQUIRE_THROWS_AS(WispSpline({a, a}, 5, 0.25f, 1), std::invalid_argument);
     REQUIRE_THROWS_AS(WispSpline({a}, 5, 0.25f, 1), std::invalid_argument);
+}
+
+TEST_CASE("wisp spline flow moves seeded dots and wraps") {
+    const FSVals noise(0.5, 2, Vector(0,0,0), 1, 2);
+    const CoordinateSys axis;
+    WispGuideParticle a(1, -1, 1, 1, noise, noise, Vector(1,1,1), Vector(0,0,0), axis, 1);
+    WispGuideParticle b(1, -1, 1, 1, noise, noise, Vector(1,1,1), Vector(0,4,0), axis, 2);
+    auto stamp = [&](float offset) {
+        return WispSpline({a, b}, 1, 0.25f, 7, offset).stamp_wisp_spline_grid();
+    };
+    auto centroid_y = [](const openvdb::FloatGrid::Ptr& grid) {
+        double weighted_y = 0.0, total = 0.0;
+        for (auto it = grid->cbeginValueOn(); it; ++it) {
+            weighted_y += double(*it) * grid->indexToWorld(it.getCoord()).y();
+            total += *it;
+        }
+        return weighted_y / total;
+    };
+    auto base = stamp(0.0f);
+    auto moved = stamp(0.125f);
+    const double delta = centroid_y(moved) - centroid_y(base);
+    // A dot advances by half a world unit, or wraps across the four-unit path.
+    REQUIRE((std::abs(delta - 0.5) < 1e-5 || std::abs(delta + 3.5) < 1e-5));
+    REQUIRE(centroid_y(stamp(1.0f)) == Catch::Approx(centroid_y(base)).margin(1e-6));
+    REQUIRE(centroid_y(stamp(-0.25f)) == Catch::Approx(centroid_y(stamp(0.75f))).margin(1e-6));
+    REQUIRE_THROWS_AS(stamp(std::numeric_limits<float>::infinity()), std::invalid_argument);
 }
 
 

@@ -10,6 +10,17 @@
 
 namespace lux {
 
+
+// NOTE -> This is a wizard generated function (from Codex)
+// Generated with prompt 
+/*
+The  stamped noise points also do not currently have their colors set. Could you update it so that all fields that have a color function actually stamp their colors into a color grid?
+That way I can give the terrain, volcano, and smoke different colors?
+*/
+
+// Not entirely sure why it isn't just using color grids, but we will see how it works. 
+
+
 // Accumulate negative density and density-weighted RGB. Call
 // normalize_wisp_color_grid once after all point stamps have been accumulated.
 inline void stamp_point_noise(const openvdb::FloatGrid::Ptr& grid, const Vector& center,

@@ -52,6 +52,8 @@ STAMP = (
     P("show_stamp_bounds", "Show Stamp Bounds (Red)", "toggle", False),
     P("cache_name", "Stamp Cache Name", "string", "",
       "Optional unique cache key. Empty means no cache; delete old caches after edits."),
+    P("static_cache", "Static Stamp Cache", "toggle", False,
+      "Reuse this named stamp cache across sequence frames. Enable only if the field and its inputs remain unchanged."),
 )
 BOUNDS = (
     P("bounds_min", "Bounds Minimum", "vector", (-2.0, -2.0, -2.0),
@@ -98,6 +100,8 @@ PARAMETERS = {
         P('use_stamp_voxel_size', 'Override Density Voxel Size', 'toggle', False),
         P('stamp_voxel_size', 'Object Density Voxel Size', 'float', 0.1),
         P('cache_name', 'Stamp Cache Name', 'string', ''),
+        P('static_cache', 'Static Stamp Cache', 'toggle', False,
+          'Reuse this named stamp cache across frames only when all inputs are static.'),
     ) + COLOR),),
     'wisp_spline': (
         ('Wisp Spline', (
@@ -107,9 +111,13 @@ PARAMETERS = {
             P('mode', 'Guide Values', 'menu', 'ramp', choices=(('ramp', 'Overall Ranges and Ramps'), ('manual', 'Per Guide'))),
             P('dots', 'Total Dot Count', 'int', 100000),
             P('seed', 'Seed', 'int', 1),
+            P('flow_offset', 'Spline Flow Offset', 'float', 0.0,
+              'Offset dot positions along the spline in cycles; positive moves from first to last guide. Wraps every 1. Animate with e.g. ($F - 1) / 48.'),
             P('use_stamp_voxel_size', 'Override Density Voxel Size', 'toggle', False),
             P('stamp_voxel_size', 'Object Density Voxel Size', 'float', 0.025),
             P('cache_name', 'Stamp Cache Name', 'string', ''),
+            P('static_cache', 'Static Stamp Cache', 'toggle', False,
+              'Reuse this named stamp cache across frames only when all inputs are static.'),
             P('show_preview', 'Show Guide Line and Points', 'toggle', True),
             P('guide_size', 'Guide Marker Size', 'float', 0.12),
             P('ramp_subdivisions', 'Ramp Samples per Segment', 'int', 8,

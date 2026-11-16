@@ -21,6 +21,7 @@ class RenderWorkerTests(unittest.TestCase):
             script.write_text('import pathlib,sys\n'
                 'out=pathlib.Path(sys.argv[sys.argv.index("--output")+1])\n'
                 'scene=pathlib.Path(sys.argv[1])\n'
+                'with open(str(scene.parent / "args.log"), "a") as f: f.write(sys.argv[sys.argv.index("--cache-dir")+1] + "|" + sys.argv[sys.argv.index("--static-cache-dir")+1] + "\\n")\n'
                 'out.write_text(scene.read_text())\n')
             frames = []
             for n in (1, 3, 5):
@@ -38,6 +39,9 @@ class RenderWorkerTests(unittest.TestCase):
             with patch('subprocess.Popen', side_effect=intercept):
                 self.assertEqual(main(args), 0)
             self.assertEqual([Path(e['image']).read_text() for e in frames], ['1', '3', '5'])
+            directories = [line.split('|') for line in (folder / 'args.log').read_text().splitlines()]
+            self.assertEqual(len({pair[0] for pair in directories}), 3)
+            self.assertTrue(all(pair[1] == 'unused' for pair in directories))
             self.assertEqual(viewer_calls, [['viewer', '-image', frames[-1]['image']]])
             self.assertFalse(manifest.exists())
 

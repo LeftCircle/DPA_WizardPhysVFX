@@ -47,6 +47,7 @@ class HoudiniLOPTests(unittest.TestCase):
     def test_wisp_spline_ramp_and_guide_stage(self):
         node = self.add('wisp_spline')
         node.parm('pv_path').set('/World/Waterfall')
+        node.parm('pv_flow_offset').setExpression('($F - 1) / 48')
         node.parm('pv_splineMin_density').set(1)
         node.parm('pv_splineMax_density').set(3)
         node.parm('pv_ramp_subdivisions').set(4)
@@ -60,6 +61,14 @@ class HoudiniLOPTests(unittest.TestCase):
         guide = stage.GetPrimAtPath('/World/Waterfall/__physvfx_spline_guide')
         self.assertTrue(guide.GetAttribute('pbvfx:preview').Get())
         self.assertEqual(len(guide.GetAttribute('points').Get()), 20)
+        original_frame = hou.frame()
+        try:
+            for frame, expected in ((1, 0), (25, 0.5), (49, 1)):
+                hou.setFrame(frame)
+                prim = node.stage().GetPrimAtPath('/World/Waterfall')
+                self.assertAlmostEqual(prim.GetAttribute('pbvfx:splineFlowOffset').Get(), expected)
+        finally:
+            hou.setFrame(original_frame)
 
     def test_render_view_lop_passes_stage_and_has_button(self):
         camera = self.add('camera')

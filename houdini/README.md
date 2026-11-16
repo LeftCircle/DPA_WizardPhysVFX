@@ -74,10 +74,21 @@ be used on a configured Python LOP if you want a local, shareable HDA; the
    the range and ramp controls are then ignored. Dot count and seed apply to
    the whole spline; the underlying spline does not use the per-guide ID or
    dot-count members.
+   **Spline Flow Offset** moves the seeded dots along the resolved spline in
+   both guide modes. Positive values move from the first guide to the last;
+   1 is a full traversal and wraps dots back to the start. For a waterfall
+   whose first guide is at the top, use `($F - 1) / 48` for one traversal per
+   48 frames. Keep Seed fixed. Set the offset to 0 for the original result.
+   This is separate from Shape Ramp Sample Offset, which moves shape ramps.
+   Dots wrap abruptly between the two ends; fade density near both ends if
+   desired. Refresh existing spline nodes to add the new control.
 5. Add a camera, light, and render settings, then use Render and View. Wisps
    always stamp a density grid, using the render setting's density voxel size
    unless **Override Density Voxel Size** is enabled. A nonempty **Stamp Cache
    Name** saves and reuses a VDB; delete it or use a new name after any edit.
+   For animated flow, leave the name empty or use per-frame caches; otherwise
+   an existing named cache can freeze the result. Render and View frame-range
+   jobs use separate temporary caches for each frame.
 
 Wisp dots also deposit density-weighted RGB into an aligned color grid, which
 is divided by density after stamping. The eight neighboring voxels receive the
@@ -582,3 +593,16 @@ After updating, restart Houdini and select an existing Render and View node,
 then click **Refresh PhysVFX Parameters** on the PhysVFX shelf. Its new controls
 appear in **PhysVFX Updates**; newly created nodes have a **Continuous Preview**
 tab. The installed viewer must support `--watch`.
+
+
+For sequence renders, enable **Static Stamp Cache** on fields whose complete
+stamped result and all inputs remain unchanged across frames. Set a unique
+**Stamp Cache Name**; static caches use the Render and View node's persistent
+**Stamp Cache Directory**, including existing files. Other caches remain
+isolated per frame. Delete or rename a static cache after changing its field,
+inputs, transforms, voxel size, or relevant settings: cache names are manual
+keys and changes are not detected automatically. Disable the marker for
+animated fields. Existing nodes need **Refresh PhysVFX Parameters** to add it.
+This avoids restamping but still evaluates and exports the Houdini USD stage
+for each frame.
+

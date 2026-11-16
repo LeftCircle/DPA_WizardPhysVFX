@@ -11,12 +11,14 @@ import tempfile
 import time
 
 
-def render_and_view(python, script, usd, image, viewer, cache_dir, open_viewer=True):
+def render_and_view(python, script, usd, image, viewer, cache_dir, open_viewer=True, static_cache_dir=None):
     image = Path(image)
     fd, temp = tempfile.mkstemp(prefix='.physvfx_render_', suffix=image.suffix, dir=str(image.parent))
     os.close(fd)
     try:
         command = [python, '-u', script, usd, '--output', temp, '--cache-dir', cache_dir]
+        if static_cache_dir is not None:
+            command += ['--static-cache-dir', static_cache_dir]
         print(f'[PhysVFX] Rendering {usd} to {image}', flush=True)
         result = subprocess.run(command, check=False)
         if result.returncode:
@@ -115,10 +117,10 @@ def main(argv=None):
                     frames = json.load(source)
                 for entry in frames:
                     print(f"[PhysVFX] Rendering frame {entry['frame']}", flush=True)
-                    # Named stamp caches have no scene-content invalidation.
-                    # Isolate each frame to prevent reuse of stale animated fields.
+                    # Dynamic caches are frame-local. Explicitly static named
+                    # caches use the persistent directory chosen by the user.
                     with tempfile.TemporaryDirectory(prefix='physvfx_frame_cache_') as cache:
-                        render_and_view(args.python, args.script, entry['usd'], entry['image'], args.viewer, cache, False)
+                        render_and_view(args.python, args.script, entry['usd'], entry['image'], args.viewer, cache, False, args.cache_dir)
                 if frames:
                     subprocess.Popen([args.viewer, '-image', frames[-1]['image']])
             finally:

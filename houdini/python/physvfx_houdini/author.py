@@ -140,7 +140,12 @@ def _stamp(prim, values):
         _float3(prim, 'stampBoundsMin', lo, point=True)
         _float3(prim, 'stampBoundsMax', hi, point=True)
     # An empty authored string also overrides an upstream cache name.
-    _attr(prim, 'cacheName', 'String', _cache_name(values['cache_name']))
+    name = _cache_name(values['cache_name'])
+    static = bool(values.get('static_cache', False))
+    if static and not name:
+        raise AuthoringError('Static Stamp Cache requires a Stamp Cache Name')
+    _attr(prim, 'cacheName', 'String', name)
+    _attr(prim, 'staticStampCache', 'Bool', static)
 
 
 def _display_color(prim, values):
@@ -287,6 +292,7 @@ def author_wisp_spline(stage, v):
         path = _path(str(parent) + '/' + str(path).rsplit('/', 1)[-1], 'Spline prim path')
     _integer(v['dots'], 'Dot count', 1)
     _integer(v['seed'], 'Seed', -2147483648)
+    flow_offset = _number(v.get('flow_offset', 0.0), 'Spline flow offset')
     _cache_name(v['cache_name'])
     _positive(v['guide_size'], 'Guide marker size')
     if v['use_stamp_voxel_size']:
@@ -310,6 +316,7 @@ def author_wisp_spline(stage, v):
     _attr(prim, 'field_type', 'Token', 'wisp_spline')
     _attr(prim, 'splineDots', 'Int', v['dots'])
     _attr(prim, 'splineSeed', 'Int', v['seed'])
+    _attr(prim, 'splineFlowOffset', 'Float', flow_offset)
     _attr(prim, 'splinePositions', 'Point3fArray', [Gf.Vec3f(*g['position']) for g in samples])
     for name, _, kind, _ in CHANNELS:
         data = [Gf.Vec3f(*g[name]) if kind == 'vector' else float(g[name]) for g in samples]

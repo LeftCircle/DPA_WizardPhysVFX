@@ -233,7 +233,8 @@ public:
         const std::vector<WispGuideParticle>& guide_particles,
         size_t n_dots,
         float voxel_size,
-        int seed
+        int seed,
+        float flow_offset = 0.0f
     );
 
     vspf stamp_wisp_spline();
@@ -272,6 +273,7 @@ private:
     size_t _n_dots;
     float _voxel_size;
     int _seed;
+    float _flow_offset;
     float _spline_length;
     std::vector<float> _cumulative_lengths;
 };

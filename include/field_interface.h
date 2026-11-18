@@ -251,6 +251,18 @@ struct GridTypes<Color>{
     }
 };
 
+template<>
+struct GridTypes<Vector>{
+    using GridType = openvdb::Vec3SGrid::Ptr;
+    static Vector from_grid(const openvdb::Vec3s& val) noexcept {
+        return Vector(val[0], val[1], val[2]);
+    }
+
+    static openvdb::Vec3s to_grid(const Vector& v) noexcept {
+        return {v[0], v[1], v[2]};
+    }
+};
+
 template <typename T>
 using GridPtr = typename GridTypes<T>::GridType;
 
@@ -267,6 +279,11 @@ VSPtr<T> make_grid_field(const typename GridTypes<T>::GridType grid){
     };
     return funcfield<T>(eval_func);
 }
+
+// Maps are slightly different than other stamps. 
+// We stamp the offset of the identity into the grid
+// so when we return, we return the offset plus identity
+vspv make_grid_field_map(const GridPtr<Vector> grid);
 
 
 

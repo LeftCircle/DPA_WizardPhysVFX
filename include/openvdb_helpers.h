@@ -40,6 +40,15 @@ GridPtr<Color> stamp_color_to_grid(
     std::string filename = ""
 );
 
+// Maps are slightly different than other stamps. 
+// We stamp the offset of the identity into the grid
+GridPtr<Vector> stamp_map_to_grid(
+    const vspv& a,
+    const openvdb::CoordBBox& bounds,
+    float voxel_size,
+    std::string filename = ""
+);
+
 // Allows us to create float or Color grids based on 
 // the template specialization in field_interface
 template <typename T>

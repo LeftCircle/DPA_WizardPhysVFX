@@ -178,5 +178,19 @@ GridPtr<Color> stamp_color_to_grid(
     return col_grid;
 }
 
+GridPtr<Vector> stamp_map_to_grid(
+    const vspv& a,
+    const openvdb::CoordBBox& bounds,
+    float voxel_size,
+    std::string filename
+){
+    auto func = [a](const Vector& p) -> Vector { return a->eval(p) - p; };
+    auto cond = [](const Vector& val){ return true; };
+    auto default_val = GridTypes<Vector>::to_grid(Vector(0, 0, 0));
+    auto map_grid = stamp_grid_parallel<Vector>(voxel_size, default_val, func, cond, bounds);
+    auto identity = make_identity_field();
+    return map_grid;
+}
+
 
 } // end namespace lux

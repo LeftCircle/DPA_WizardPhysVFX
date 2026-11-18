@@ -231,6 +231,10 @@ VSPtr<Vector> make_grad_field(const vspf& f){
     return funcfield<Vector>([f](const Vector& v){ return f->grad(v); });
 }
 
+vspv make_grid_field_map(const GridPtr<Vector> grid){
+    return make_grid_field<Vector>(grid) + make_identity_field();
+}
+
 // VSPtr<float> make_nearpoint_transform(const vspf& f){
 //     auto eval = [f](const Vector& p){
 //         Vector grad_f = f->grad(p);

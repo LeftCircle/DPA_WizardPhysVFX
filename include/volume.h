@@ -192,6 +192,7 @@ template<typename T>
 using VSPtr = std::shared_ptr<Volume<T>>;
 using vspf = VolumeSPtr<float>;
 using vspc = VolumeSPtr<Color>;
+using vspv = VolumeSPtr<Vector>;
 
 
 }

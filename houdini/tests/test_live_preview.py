@@ -49,6 +49,27 @@ class UI:
 
 
 class LivePreviewTests(unittest.TestCase):
+    def test_gamma_change_reopens_watched_viewer(self):
+        root = Node(); render = Node(root)
+        hou = self.make_hou(root)
+        session = live_preview.LivePreview(render, hou)
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'image.exr'; source.write_text('linear')
+            first = types.SimpleNamespace(poll=lambda: None)
+            second = types.SimpleNamespace(poll=lambda: None)
+            with patch('physvfx_houdini.live_preview.subprocess.Popen', side_effect=[first, second]) as popen, \
+                 patch('physvfx_houdini.live_preview._signal_process') as stop:
+                session._publish(source, Path('viewer'), 0.5)
+                session._publish(source, Path('viewer'), 0.5)
+                self.assertEqual(popen.call_count, 1)
+                session._publish(source, Path('viewer'), 0.7)
+                self.assertEqual(popen.call_count, 2)
+                stop.assert_called_once_with(first)
+                self.assertEqual(popen.call_args.args[0][-2:], ['--display-gamma', '0.7'])
+                self.assertEqual(session.image.read_text(), 'linear')
+                session.viewer = None
+        session.close()
+
     def make_hou(self, root):
         events = types.SimpleNamespace(**{name: name for name in
             ('ParmTupleChanged', 'InputRewired', 'InputDataChanged', 'BeingDeleted', 'FlagChanged', 'ChildCreated', 'ChildDeleted')})

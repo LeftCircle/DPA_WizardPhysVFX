@@ -2,6 +2,7 @@
 import argparse
 import glob
 import json
+import math
 import os
 import signal
 from pathlib import Path
@@ -11,7 +12,17 @@ import tempfile
 import time
 
 
-def render_and_view(python, script, usd, image, viewer, cache_dir, open_viewer=True, static_cache_dir=None):
+def viewer_command(viewer, image, gamma=1.0, watch=False):
+    gamma = float(gamma)
+    if not math.isfinite(gamma) or gamma <= 0:
+        raise ValueError('Viewer Gamma must be finite and greater than zero')
+    command = [str(viewer), '-image', str(image)]
+    if watch: command.append('--watch')
+    if gamma != 1.0: command.extend(['--display-gamma', str(gamma)])
+    return command
+
+
+def render_and_view(python, script, usd, image, viewer, cache_dir, open_viewer=True, static_cache_dir=None, gamma=1.0):
     image = Path(image)
     fd, temp = tempfile.mkstemp(prefix='.physvfx_render_', suffix=image.suffix, dir=str(image.parent))
     os.close(fd)
@@ -28,12 +39,12 @@ def render_and_view(python, script, usd, image, viewer, cache_dir, open_viewer=T
         os.replace(temp, image)
         print(f'[PhysVFX] Wrote {image}.', flush=True)
         if open_viewer:
-            subprocess.Popen([viewer, '-image', str(image)])
+            subprocess.Popen(viewer_command(viewer, image, gamma))
     finally:
         if os.path.exists(temp): os.unlink(temp)
 
 
-def render_progressively(python, script, usd, image, viewer, cache_dir):
+def render_progressively(python, script, usd, image, viewer, cache_dir, gamma=1.0):
     """Show atomic preview updates without replacing the previous final image."""
     image = Path(image)
     output_fd, output = tempfile.mkstemp(prefix='.physvfx_render_', suffix=image.suffix, dir=str(image.parent))
@@ -54,7 +65,7 @@ def render_progressively(python, script, usd, image, viewer, cache_dir):
             if not viewer_attempted and os.path.isfile(preview) and os.path.getsize(preview) > 0:
                 viewer_attempted = True
                 try:
-                    viewer_proc = subprocess.Popen([viewer, '-image', preview, '--watch'])
+                    viewer_proc = subprocess.Popen(viewer_command(viewer, preview, gamma, watch=True))
                 except OSError as exc:
                     print(f'[PhysVFX] Could not open preview viewer: {exc}', file=sys.stderr, flush=True)
             result = renderer.poll()
@@ -69,7 +80,7 @@ def render_progressively(python, script, usd, image, viewer, cache_dir):
         print(f'[PhysVFX] Wrote {image}.', flush=True)
         if not viewer_attempted:
             print('[PhysVFX] No progressive image was published; opening the final image.', flush=True)
-            subprocess.Popen([viewer, '-image', str(image)])
+            subprocess.Popen(viewer_command(viewer, image, gamma))
         # Keep the watched file available while its viewer is open. This worker
         # is separate from Houdini, which remains responsive.
         if viewer_proc is not None:
@@ -108,7 +119,12 @@ def main(argv=None):
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--progressive', action='store_true')
     parser.add_argument('--sequence-manifest')
+    parser.add_argument('--display-gamma', type=float, default=1.0)
     args = parser.parse_args(argv)
+    try:
+        viewer_command(args.viewer, args.image, args.display_gamma)
+    except ValueError as exc:
+        parser.error(str(exc))
     signal.signal(signal.SIGTERM, _cancel_on_signal)
     try:
         if args.sequence_manifest:
@@ -120,14 +136,16 @@ def main(argv=None):
                     # Dynamic caches are frame-local. Explicitly static named
                     # caches use the persistent directory chosen by the user.
                     with tempfile.TemporaryDirectory(prefix='physvfx_frame_cache_') as cache:
-                        render_and_view(args.python, args.script, entry['usd'], entry['image'], args.viewer, cache, False, args.cache_dir)
+                        render_and_view(args.python, args.script, entry['usd'], entry['image'], args.viewer, cache, False, args.cache_dir, args.display_gamma)
                 if frames:
-                    subprocess.Popen([args.viewer, '-image', frames[-1]['image']])
+                    subprocess.Popen(viewer_command(args.viewer, frames[-1]['image'], args.display_gamma))
             finally:
                 os.unlink(args.sequence_manifest)
         else:
-            renderer = render_progressively if args.progressive else render_and_view
-            renderer(args.python, args.script, args.usd, args.image, args.viewer, args.cache_dir)
+            if args.progressive:
+                render_progressively(args.python, args.script, args.usd, args.image, args.viewer, args.cache_dir, args.display_gamma)
+            else:
+                render_and_view(args.python, args.script, args.usd, args.image, args.viewer, args.cache_dir, gamma=args.display_gamma)
     except RenderCancelled:
         print('[PhysVFX] Render cancelled.', flush=True)
         return 130

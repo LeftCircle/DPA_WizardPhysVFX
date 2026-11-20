@@ -9,10 +9,57 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from physvfx_houdini.render_worker import render_and_view, render_progressively, main
+from physvfx_houdini.render_worker import render_and_view, render_progressively, main, viewer_command
 
 
 class RenderWorkerTests(unittest.TestCase):
+    def test_display_gamma_viewer_arguments_and_validation(self):
+        self.assertEqual(viewer_command('viewer', 'frame.exr', 0.5, True),
+                         ['viewer', '-image', 'frame.exr', '--watch', '--display-gamma', '0.5'])
+        for value in (0, -1, float('inf'), float('nan')):
+            with self.assertRaises(ValueError): viewer_command('viewer', 'a.exr', value)
+
+    def test_single_render_opens_gamma_adjusted_viewer_and_keeps_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            script = folder / 'renderer.py'
+            script.write_text('import pathlib,sys\n'
+                              'pathlib.Path(sys.argv[sys.argv.index("--output")+1]).write_text("linear")\n')
+            image = folder / 'image.exr'
+            with patch('physvfx_houdini.render_worker.subprocess.Popen') as viewer:
+                # subprocess.run internally uses Popen, so mock the render itself.
+                with patch('physvfx_houdini.render_worker.subprocess.run') as run:
+                    def write_image(command, **kwargs):
+                        Path(command[command.index('--output') + 1]).write_text('linear')
+                        return type('Result', (), {'returncode': 0})()
+                    run.side_effect = write_image
+                    render_and_view(sys.executable, str(script), 'scene', image, 'viewer', 'cache', gamma=0.5)
+                viewer.assert_called_once_with(['viewer', '-image', str(image), '--display-gamma', '0.5'])
+            self.assertEqual(image.read_text(), 'linear')
+
+    def test_sequence_passes_gamma_only_to_viewer(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            script = folder / 'renderer.py'
+            script.write_text('import pathlib,sys\n'
+                              'assert "--display-gamma" not in sys.argv\n'
+                              'pathlib.Path(sys.argv[sys.argv.index("--output")+1]).write_text("linear")\n')
+            image = folder / 'image.exr'
+            manifest = folder / 'frames.json'
+            manifest.write_text(json.dumps([{'frame': 1, 'usd': 'scene', 'image': str(image)}]))
+            real_popen = subprocess.Popen
+            viewers = []
+            def intercept(args, *a, **kw):
+                if args[0] == 'viewer': viewers.append(args); return object()
+                return real_popen(args, *a, **kw)
+            args = ['--python', sys.executable, '--script', str(script), '--usd', 'unused',
+                    '--image', 'unused', '--viewer', 'viewer', '--cache-dir', 'cache',
+                    '--sequence-manifest', str(manifest), '--display-gamma', '0.5']
+            with patch('subprocess.Popen', side_effect=intercept):
+                self.assertEqual(main(args), 0)
+            self.assertEqual(viewers, [['viewer', '-image', str(image), '--display-gamma', '0.5']])
+            self.assertEqual(image.read_text(), 'linear')
     def test_frame_range_renders_in_order_with_separate_caches(self):
         import json
         with tempfile.TemporaryDirectory() as tmp:

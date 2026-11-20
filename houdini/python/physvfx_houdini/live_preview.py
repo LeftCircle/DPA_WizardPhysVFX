@@ -50,6 +50,7 @@ class LivePreview:
         self.job = None
         self.viewer = None
         self.viewer_path = None
+        self.viewer_gamma = None
         self.watched = {}
         self.needs_scan = True
         self.snapshotting = False
@@ -114,22 +115,27 @@ class LivePreview:
         self.changed_at = time.monotonic()
         self.dirty = True
 
-    def _publish(self, source, viewer_path):
+    def _publish(self, source, viewer_path, gamma=1.0):
+        from .render_worker import viewer_command
         if not source.is_file() or source.stat().st_size == 0:
             return
         temp = self.directory / 'display_next.exr'
         shutil.copyfile(source, temp)
         os.replace(temp, self.image)
-        if self.viewer is not None and self.viewer.poll() is None and self.viewer_path != viewer_path:
+        if self.viewer is not None and self.viewer.poll() is None and (self.viewer_path != viewer_path or self.viewer_gamma != gamma):
             _signal_process(self.viewer)
             self.viewer = None
         if self.viewer is None or self.viewer.poll() is not None:
-            self.viewer = subprocess.Popen([str(viewer_path), '-image', str(self.image), '--watch'],
+            self.viewer = subprocess.Popen(viewer_command(viewer_path, self.image, gamma, watch=True),
                                            start_new_session=(os.name == 'posix'))
             self.viewer_path = viewer_path
+            self.viewer_gamma = gamma
 
     def _start_job(self, values):
         from .nodes import _render_programs, _renderer_environment
+        gamma = float(values.get('display_gamma', 1.0))
+        if not math.isfinite(gamma) or gamma <= 0:
+            raise ValueError('Viewer Gamma must be finite and greater than zero')
         resolution = _positive_setting(values['live_resolution_scale'], 'Resolution Scale', 1e-6, 1.0)
         steps = _positive_setting(values['live_step_multiplier'], 'Step Multiplier', 1.0)
         voxel = _positive_setting(values['live_voxel_multiplier'], 'Voxel Multiplier', 1.0)
@@ -157,7 +163,7 @@ class LivePreview:
             usd.unlink(missing_ok=True)
             raise
         self.job = {'process': process, 'revision': generation, 'usd': usd, 'final': final,
-                    'preview': preview, 'viewer': viewer, 'preview_time': None, 'cancel_at': None}
+                    'preview': preview, 'viewer': viewer, 'gamma': gamma, 'preview_time': None, 'cancel_at': None}
         self.dirty = False
         print(f'[PhysVFX] Continuous preview rendering revision {generation}.', flush=True)
 
@@ -188,13 +194,13 @@ class LivePreview:
                 if job['revision'] == self.revision and job['preview'].is_file():
                     stamp = job['preview'].stat().st_mtime_ns
                     if stamp != job['preview_time']:
-                        self._publish(job['preview'], job['viewer'])
+                        self._publish(job['preview'], job['viewer'], job['gamma'])
                         job['preview_time'] = stamp
                 code = process.poll()
                 if code is not None:
                     if job['revision'] == self.revision:
                         if code == 0 and job['final'].is_file() and job['final'].stat().st_size:
-                            self._publish(job['final'], job['viewer'])
+                            self._publish(job['final'], job['viewer'], job['gamma'])
                         elif code != 0:
                             print(f'[PhysVFX] Continuous preview renderer exited with {code}; see the console.', file=sys.stderr, flush=True)
                         else:

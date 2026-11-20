@@ -509,6 +509,7 @@ def _render_range(node, v):
     if len(set(usds + images)) != len(usds) + len(images):
         raise hou.OperationFailed('Each frame must have a unique USD and image path.')
     python, script, repo, viewer = _render_programs(v)
+    gamma = _validated_viewer_gamma(v)
     _cancel_previous_render(node)
     original_frame = hou.frame()
     entries = []
@@ -540,7 +541,8 @@ def _render_range(node, v):
         worker = Path(__file__).resolve().parent / 'render_worker.py'
         command = [python, '-u', str(worker), '--python', python, '--script', str(script),
                    '--usd', str(usds[0]), '--image', str(images[0]), '--viewer', str(viewer),
-                   '--cache-dir', v['render_stamp_dir'], '--sequence-manifest', manifest]
+                   '--cache-dir', v['render_stamp_dir'], '--sequence-manifest', manifest,
+                   '--display-gamma', str(gamma)]
         process = subprocess.Popen(command, cwd=str(repo), env=_renderer_environment(repo),
                                    start_new_session=(os.name == 'posix'))
     except Exception:
@@ -549,6 +551,15 @@ def _render_range(node, v):
     _render_jobs[node.path()] = process
     _monitor_render_worker(process)
     print(f'[PhysVFX] Rendered sequence worker launched for {len(frames)} frame(s).', flush=True)
+
+
+def _validated_viewer_gamma(values):
+    import math
+    import hou
+    gamma = float(values.get('display_gamma', 1.0))
+    if not math.isfinite(gamma) or gamma <= 0:
+        raise hou.OperationFailed('Viewer Gamma must be finite and greater than zero.')
+    return gamma
 
 
 def render_and_view(node):
@@ -560,6 +571,7 @@ def render_and_view(node):
     import hou
 
     v = read_values(node, 'render_view')
+    gamma = _validated_viewer_gamma(v)
     if not v['usd_path'].strip() or not v['image_path'].strip():
         raise hou.OperationFailed('Set both USD Save Path and Image Save Path.')
     if v['render_frame_range']:
@@ -592,7 +604,8 @@ def render_and_view(node):
     worker = Path(__file__).resolve().parent / 'render_worker.py'
     command = [renderer_python, '-u', str(worker), '--python', renderer_python,
                '--script', str(script), '--usd', str(usd), '--image', str(image),
-               '--viewer', str(viewer), '--cache-dir', v['render_stamp_dir']]
+               '--viewer', str(viewer), '--cache-dir', v['render_stamp_dir'],
+               '--display-gamma', str(gamma)]
     if v['progressive_preview']:
         command.append('--progressive')
     try:

@@ -606,3 +606,14 @@ animated fields. Existing nodes need **Refresh PhysVFX Parameters** to add it.
 This avoids restamping but still evaluates and exports the Houdini USD stage
 for each frame.
 
+### Viewer gamma
+
+On the PhysVFX Render and View node, **Viewer Gamma** applies an RGB power
+to displayed images. The default 1 leaves them unchanged; 0.45 is a useful
+starting point for brightening. This affects the regular viewer, progressive
+updates, continuous preview, and the final image opened after a frame sequence.
+The written images remain linear and alpha is preserved. Negative RGB values
+are displayed as zero when gamma is enabled. Changing gamma during continuous
+preview restarts its viewer for the new setting. Select an existing node and
+use **Refresh PhysVFX Parameters** to add the control. Rebuild dpa_imgviewer;
+custom viewers must support `--display-gamma` to use values other than 1.

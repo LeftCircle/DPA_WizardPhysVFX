@@ -36,6 +36,13 @@ TEST_CASE("Test stamping a warp field"){
 }
 
 
+/*
+To get this to work, we could stamp the f_sdf into a grid. Then we know at each grid point
+if we should take small steps or not
+
+Could even start with a large stamp and then smaller substamps in regions that are close to the data
+This stamp should occur at render time for each frame
+*/
 // TEST_CASE("Test generating arbitrary sdf"){
 //     // Create an arbitrary sdf from 
 //     // fsdf(x) = |x - INPT(f, N)| * sign(f(x))
